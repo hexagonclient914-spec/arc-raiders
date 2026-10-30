@@ -119,6 +119,12 @@ except ImportError:
             def get_state(self):
                 return {"is_connected": False, "enabled": False, "port": "None"}
 
+try:
+    from capture_card import CaptureCardStream
+    CAPTURE_CARD_AVAILABLE = True
+except ImportError:
+    CAPTURE_CARD_AVAILABLE = False
+
 
 def get_screen_resolution():
     """Get primary monitor resolution using Win32 API."""
@@ -947,6 +953,11 @@ class YOLOEngine:
         self.running = False
         if hasattr(self, "makcu_aimbot") and self.makcu_aimbot:
             self.makcu_aimbot.disconnect()
+        if hasattr(self, "capture_card_stream") and self.capture_card_stream:
+            try:
+                self.capture_card_stream.stop()
+            except Exception:
+                pass
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=2.0)
 
@@ -1172,6 +1183,23 @@ class YOLOEngine:
         if not self.onnx_engine and not self.model:
             self.load_model()
 
+        # Initialize Capture Source: Direct DWM Desktop vs Dual-PC HDMI Capture Card
+        capture_source = str(self.config.get("capture_source", "desktop")).lower()
+        capture_card_stream = None
+        if capture_source == "capture_card" and CAPTURE_CARD_AVAILABLE:
+            card_idx = int(self.config.get("capture_card_index", 0))
+            card_w = int(self.config.get("capture_card_width", 1920))
+            card_h = int(self.config.get("capture_card_height", 1080))
+            card_fps = int(self.config.get("capture_card_fps", 60))
+            print(f"[YOLOEngine] Dual-PC Mode Active: Initializing HDMI Capture Card #{card_idx} ({card_w}x{card_h} @ {card_fps} FPS)...")
+            try:
+                capture_card_stream = CaptureCardStream(device_index=card_idx, width=card_w, height=card_h, fps=card_fps)
+                capture_card_stream.start()
+                self.capture_card_stream = capture_card_stream
+            except Exception as e:
+                print(f"[YOLOEngine] Dual-PC Capture Card initialization error: {e}")
+                capture_card_stream = None
+
         # Initialize Zero-Copy Win32 DIBSection Triple-Ring-Buffer Screen Capture in dedicated thread (preallocated full resolution)
         dib_capture = Win32ZeroCopyCapture(max_width=max(1920, int(self.screen_w)), max_height=max(1080, int(self.screen_h)))
         sct_fallback = mss.mss() if MSS_AVAILABLE else None
@@ -1200,7 +1228,22 @@ class YOLOEngine:
                 reg = self._compute_scan_region()
                 rl, rt, rw, rh = reg["left"], reg["top"], reg["width"], reg["height"]
 
-                # Pick a ring-buffer slot that is neither currently read nor currently marked ready
+                # Dual-PC mode: Grab directly from HDMI capture card
+                if capture_card_stream is not None:
+                    tc0 = time.perf_counter()
+                    f_crop = capture_card_stream.read_region(rl, rt, rw, rh)
+                    if f_crop is not None:
+                        cap_dt = (time.perf_counter() - tc0) * 1000.0
+                        with latest_frame_lock:
+                            latest_frame_state["frame"] = f_crop
+                            latest_frame_state["ready_slot"] = 0
+                            latest_frame_state["region"] = reg
+                            latest_frame_state["cap_ms"] = cap_dt
+                    else:
+                        time.sleep(0.002)
+                    continue
+
+                # Single-PC mode: Pick a ring-buffer slot that is neither currently read nor currently marked ready
                 with latest_frame_lock:
                     r_slot = latest_frame_state["read_slot"]
                     p_slot = latest_frame_state["ready_slot"]

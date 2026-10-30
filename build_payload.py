@@ -49,6 +49,7 @@ FILES_TO_PACK = [
     "audio_engine.py",
     "overlay_window.py",
     "settings_window.py",
+    "capture_card.py",
     
     # Configs & Tools
     "yolo_config.json",

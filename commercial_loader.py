@@ -195,6 +195,19 @@ class HardwareScannerThread(QThread):
         except Exception as e:
             info["makcu_status"] = f"Error: {e}"
 
+        # 3. Check HDMI Capture Cards for Dual-PC mode
+        try:
+            from capture_card import list_capture_devices
+            cards = list_capture_devices(max_devices=3)
+            info["capture_cards"] = cards
+            if cards:
+                info["capture_card_status"] = f"Detected ({len(cards)} devices)"
+            else:
+                info["capture_card_status"] = "DirectShow Ready"
+        except Exception:
+            info["capture_cards"] = []
+            info["capture_card_status"] = "DirectShow Ready"
+
         self.sig_hardware_ready.emit(info)
 
 
@@ -456,13 +469,52 @@ class CommercialLoaderWindow(QMainWindow):
         self.lbl_gpu = QLabel("🎮 GPU: Detecting NVIDIA TensorRT...")
         self.lbl_gpu.setObjectName("HwLabel")
 
+        self.lbl_capture = QLabel("📡 STREAM: Direct DWM [Single-PC]")
+        self.lbl_capture.setObjectName("HwLabel")
+
         self.lbl_makcu = QLabel("🔌 MAKCU: Scanning COM ports...")
         self.lbl_makcu.setObjectName("HwLabel")
 
         hw_lay.addWidget(self.lbl_gpu)
         hw_lay.addStretch()
+        hw_lay.addWidget(self.lbl_capture)
+        hw_lay.addStretch()
         hw_lay.addWidget(self.lbl_makcu)
         lay.addWidget(hw_box)
+
+        # Pipeline Architecture Switch (Single-PC vs Dual-PC)
+        mode_box = QFrame()
+        mode_box.setObjectName("ModeBox")
+        m_lay = QHBoxLayout(mode_box)
+        m_lay.setContentsMargins(14, 8, 14, 8)
+        m_lay.setSpacing(10)
+
+        lbl_m = QLabel("PIPELINE ARCHITECTURE:")
+        lbl_m.setObjectName("SubText")
+        m_lay.addWidget(lbl_m)
+
+        self.btn_mode_single = QPushButton("💻 SINGLE-PC (DIRECT DESKTOP)")
+        self.btn_mode_single.setObjectName("ModeBtn")
+        self.btn_mode_single.setCheckable(True)
+        self.btn_mode_single.setChecked(True)
+        self.btn_mode_single.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_mode_single.clicked.connect(lambda: self._set_capture_mode("desktop"))
+        m_lay.addWidget(self.btn_mode_single)
+
+        self.btn_mode_dual = QPushButton("🖥️🖥️ DUAL-PC (HDMI CAPTURE CARD)")
+        self.btn_mode_dual.setObjectName("ModeBtn")
+        self.btn_mode_dual.setCheckable(True)
+        self.btn_mode_dual.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_mode_dual.clicked.connect(lambda: self._set_capture_mode("capture_card"))
+        m_lay.addWidget(self.btn_mode_dual)
+
+        m_lay.addStretch()
+
+        self.lbl_mode_pill = QLabel("● DWM 0-COPY")
+        self.lbl_mode_pill.setObjectName("ModePill")
+        m_lay.addWidget(self.lbl_mode_pill)
+
+        lay.addWidget(mode_box)
 
         # Cloud Download / Sync Progress Container (hidden when idle)
         self.download_container = QFrame()
@@ -606,6 +658,40 @@ class CommercialLoaderWindow(QMainWindow):
             except Exception as e:
                 self.lbl_status.setText(f"Error updating config: {e}")
 
+    def _set_capture_mode(self, mode: str):
+        is_dual = (mode == "capture_card")
+        self.btn_mode_single.setChecked(not is_dual)
+        self.btn_mode_dual.setChecked(is_dual)
+        self.btn_mode_single.setProperty("selected", "true" if not is_dual else "false")
+        self.btn_mode_dual.setProperty("selected", "true" if is_dual else "false")
+        for b in (self.btn_mode_single, self.btn_mode_dual):
+            b.style().unpolish(b)
+            b.style().polish(b)
+
+        if is_dual:
+            self.lbl_mode_pill.setText("⚡ 100% HARDWARE ISOLATED (Dual-PC)")
+            self.lbl_mode_pill.setStyleSheet("color: #00FFCC; font-weight: 800; background: rgba(0, 255, 204, 0.12); padding: 4px 10px; border-radius: 6px; border: 1px solid #00FFCC;")
+            self.lbl_capture.setText("📡 STREAM: HDMI Capture Card [Dual-PC]")
+        else:
+            self.lbl_mode_pill.setText("● DWM 0-COPY (Single-PC)")
+            self.lbl_mode_pill.setStyleSheet("color: #00F0FF; font-weight: 800; background: rgba(0, 240, 255, 0.10); padding: 4px 10px; border-radius: 6px; border: 1px solid #00F0FF;")
+            self.lbl_capture.setText("📡 STREAM: Direct DWM [Single-PC]")
+
+        # Persist in yolo_config.json
+        active_dir = get_active_payload_dir()
+        cfg_path = os.path.join(active_dir, "yolo_config.json")
+        if not os.path.exists(cfg_path) and os.path.exists(CONFIG_FILE):
+            cfg_path = CONFIG_FILE
+        if os.path.exists(cfg_path):
+            try:
+                with open(cfg_path, "r", encoding="utf-8") as f:
+                    cfg = json.load(f)
+                cfg["capture_source"] = mode
+                with open(cfg_path, "w", encoding="utf-8") as f:
+                    json.dump(cfg, f, indent=4)
+            except Exception:
+                pass
+
     def _sync_selected_game_card(self):
         curr_game = "valorant"
         active_dir = get_active_payload_dir()
@@ -618,13 +704,29 @@ class CommercialLoaderWindow(QMainWindow):
                 with open(cfg_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     curr_game = cfg.get("active_game_profile", "valorant")
+                    curr_source = cfg.get("capture_source", "desktop")
             except Exception:
-                pass
+                curr_source = "desktop"
         self._select_game(curr_game)
+        self._set_capture_mode(curr_source)
 
     def _on_hardware_detected(self, info: dict):
         self.lbl_gpu.setText(f"🎮 GPU: {info.get('gpu_name')} ({info.get('tensorrt_status')})")
         self.lbl_makcu.setText(f"🔌 MAKCU: {info.get('makcu_status')}")
+        if info.get("capture_card_status"):
+            active_dir = get_active_payload_dir()
+            cfg_path = os.path.join(active_dir, "yolo_config.json")
+            if not os.path.exists(cfg_path) and os.path.exists(CONFIG_FILE):
+                cfg_path = CONFIG_FILE
+            is_dual = False
+            if os.path.exists(cfg_path):
+                try:
+                    with open(cfg_path, "r", encoding="utf-8") as f:
+                        is_dual = (json.load(f).get("capture_source") == "capture_card")
+                except Exception:
+                    pass
+            if is_dual:
+                self.lbl_capture.setText(f"📡 STREAM: HDMI Capture ({info.get('capture_card_status')})")
 
     def _on_update_result(self, is_update_avail: bool, new_ver: str, changelog: list):
         if is_update_avail:
@@ -1021,6 +1123,45 @@ class CommercialLoaderWindow(QMainWindow):
             background: rgba(8, 12, 19, 0.95);
             border: 1px solid #1a273d;
             border-radius: 10px;
+        }
+
+        QFrame#ModeBox {
+            background: rgba(8, 12, 19, 0.95);
+            border: 1px solid #1a273d;
+            border-radius: 10px;
+        }
+
+        QPushButton#ModeBtn {
+            background: #0d1522;
+            color: #94a3b8;
+            border: 1px solid #1f2d44;
+            border-radius: 8px;
+            padding: 6px 14px;
+            font-size: 11px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+        }
+
+        QPushButton#ModeBtn:hover {
+            background: #142033;
+            color: #00F0FF;
+            border-color: #00F0FF;
+        }
+
+        QPushButton#ModeBtn[selected="true"], QPushButton#ModeBtn:checked {
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #005577, stop:1 #008877);
+            color: #00FFCC;
+            border: 1.5px solid #00FFCC;
+        }
+
+        QLabel#ModePill {
+            color: #00F0FF;
+            font-weight: 800;
+            font-size: 11px;
+            background: rgba(0, 240, 255, 0.10);
+            padding: 4px 10px;
+            border-radius: 6px;
+            border: 1px solid #00F0FF;
         }
 
         QLabel#HwLabel {
