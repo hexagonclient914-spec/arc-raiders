@@ -1498,6 +1498,22 @@ class YOLOEngine:
                     head_x += t["vx"] * lead_time
                     head_y += t["vy"] * lead_time
 
+                # Head Center Stabilization Filter (Eliminates frame-to-frame micro-jitter on head)
+                target_tr = self.tracked_targets.get(t.get("target_id"))
+                if target_tr:
+                    last_hx = target_tr.get("smooth_hx")
+                    last_hy = target_tr.get("smooth_hy")
+                    if last_hx is not None and last_hy is not None:
+                        d_head = math.hypot(head_x - last_hx, head_y - last_hy)
+                        if d_head < 3.8:
+                            head_x = last_hx * 0.90 + head_x * 0.10
+                            head_y = last_hy * 0.90 + head_y * 0.10
+                        elif d_head < 12.0:
+                            head_x = last_hx * 0.60 + head_x * 0.40
+                            head_y = last_hy * 0.60 + head_y * 0.40
+                    target_tr["smooth_hx"] = head_x
+                    target_tr["smooth_hy"] = head_y
+
                 head_h = t["h"] * (0.16 if stance == "STAND" else 0.20)
                 head_w = min(t["w"] * 0.44, head_h * 0.90)
 

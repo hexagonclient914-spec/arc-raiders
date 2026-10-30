@@ -67,7 +67,7 @@
     "makcu_triggerbot_head_only": true,
     "makcu_triggerbot_mode": "tap",
     "makcu_triggerbot_burst_shots": 2,
-    "makcu_triggerbot_recoil_delay_ms": 282,
+    "makcu_triggerbot_recoil_delay_ms": 314,
     "makcu_triggerbot_stop_to_shoot": true,
     "makcu_triggerbot_snap_check": true,
     "makcu_lock_on_target": true

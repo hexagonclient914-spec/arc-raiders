@@ -7,10 +7,10 @@
     "remote_manifest_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/contents/version.json",
     "payload_download_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/releases/latest",
     "changelog": [
+        "Head-Lock Anti-Flicker: Zero-jitter EMA coordinate filter & sub-pixel fractional accumulator",
+        "Cyber-Tactical Glassmorphic GUI: Full visual overhaul, neon status pills & telemetry HUD",
         "Fortnite (FN) High-Speed AI Profile: 100K-trained model, 260+ FPS & anatomical Head-Lock",
         "Universal Auto-Converter: TensorRT 10 and 11 multi-GPU compiler",
-        "Code Protection Architecture: Encrypted binary execution containers for all Python modules",
-        "RTX 4070 / RTX 4060 Ti auto-optimization out of the box",
-        "MAKCU Dual-ESP32 auto-detection"
+        "Code Protection Architecture: Encrypted binary execution containers for all Python modules"
     ]
 }

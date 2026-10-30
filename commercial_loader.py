@@ -213,7 +213,7 @@ class CommercialLoaderWindow(QMainWindow):
         self.uptime_seconds = 0
 
         self.setWindowTitle(f"AURA Tactical Vision // Client Loader v{self.v_info.get('version', '5.0.0')}")
-        self.resize(840, 580)
+        self.resize(920, 610)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -804,95 +804,96 @@ class CommercialLoaderWindow(QMainWindow):
     def _apply_styling(self):
         qss = """
         QFrame#CentralContainer {
-            background-color: #0b0d12;
-            border: 1px solid #1c2333;
-            border-radius: 12px;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #090c13, stop:0.5 #06080d, stop:1 #030407);
+            border: 1.5px solid #1a2538;
+            border-radius: 14px;
         }
 
         QFrame#TitleBar {
-            background-color: #0f131a;
-            border-top-left-radius: 12px;
-            border-top-right-radius: 12px;
-            border-bottom: 1px solid #1c2333;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0e1422, stop:1 #080b12);
+            border-top-left-radius: 14px;
+            border-top-right-radius: 14px;
+            border-bottom: 1.5px solid #1a273b;
         }
 
         QLabel#TitleLogo {
-            color: #00FFCC;
-            font-size: 15px;
+            color: #00F0FF;
+            font-size: 16px;
             font-weight: 900;
-            letter-spacing: 2px;
+            letter-spacing: 3px;
         }
 
         QLabel#TitleText {
-            color: #8b9bb4;
+            color: #94a3b8;
             font-size: 11px;
-            font-weight: 700;
-            letter-spacing: 1.5px;
+            font-weight: 800;
+            letter-spacing: 2px;
             margin-left: 8px;
         }
 
         QPushButton#TitleBtn {
             background: transparent;
-            color: #8b9bb4;
+            color: #94a3b8;
             border: none;
             font-size: 14px;
-            width: 28px;
-            height: 28px;
-            border-radius: 4px;
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
         }
         QPushButton#TitleBtn:hover {
-            background: #1c2333;
-            color: #ffffff;
+            background: #1c273b;
+            color: #00F0FF;
         }
 
         QPushButton#TitleCloseBtn {
             background: transparent;
-            color: #8b9bb4;
+            color: #94a3b8;
             border: none;
             font-size: 13px;
-            width: 28px;
-            height: 28px;
-            border-radius: 4px;
+            width: 30px;
+            height: 30px;
+            border-radius: 6px;
         }
         QPushButton#TitleCloseBtn:hover {
-            background: #ff2a55;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF2A55, stop:1 #E11D48);
             color: #ffffff;
         }
 
         QFrame#AuthCard {
-            background-color: #11151f;
-            border: 1px solid #232c40;
-            border-radius: 12px;
-            max-width: 520px;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #101624, stop:1 #0a0e18);
+            border: 1.5px solid #22324b;
+            border-radius: 14px;
+            max-width: 540px;
         }
 
         QLabel#AuthHeader {
             color: #ffffff;
-            font-size: 18px;
-            font-weight: 800;
-            letter-spacing: 2px;
+            font-size: 19px;
+            font-weight: 900;
+            letter-spacing: 2.5px;
         }
 
         QLabel#SubText {
-            color: #7a889b;
+            color: #8191a6;
             font-size: 11px;
+            font-weight: 600;
         }
 
         QFrame#HwidBox {
-            background-color: #090b10;
-            border: 1px solid #1c2333;
+            background: rgba(6, 9, 15, 0.9);
+            border: 1px solid #1c2a3f;
             border-radius: 8px;
         }
 
         QLabel#BadgeLabel {
-            color: #00FFCC;
+            color: #00F0FF;
             font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 1px;
+            font-weight: 900;
+            letter-spacing: 1.5px;
         }
 
         QLabel#HwidValue {
-            color: #ffffff;
+            color: #f1f5f9;
             font-family: 'Consolas', 'Courier New', monospace;
             font-size: 12px;
             font-weight: bold;
@@ -900,61 +901,67 @@ class CommercialLoaderWindow(QMainWindow):
         }
 
         QPushButton#ActionPillBtn {
-            background-color: #1a2233;
-            color: #00FFCC;
-            border: 1px solid #00FFCC;
-            border-radius: 4px;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #0f1c2e, stop:1 #0c1827);
+            color: #00F0FF;
+            border: 1px solid #00F0FF;
+            border-radius: 5px;
             font-size: 10px;
-            font-weight: 800;
-            padding: 3px 8px;
+            font-weight: 900;
+            padding: 4px 10px;
+            letter-spacing: 0.5px;
         }
         QPushButton#ActionPillBtn:hover {
-            background-color: #00FFCC;
-            color: #000000;
+            background: #00F0FF;
+            color: #040810;
         }
 
         QLineEdit#KeyInput {
-            background-color: #090b10;
-            border: 1px solid #232c40;
+            background: #06090f;
+            border: 1.5px solid #23334d;
             border-radius: 8px;
-            color: #ffffff;
+            color: #00FFCC;
+            font-family: 'Consolas', monospace;
             font-size: 12px;
+            font-weight: bold;
             padding: 10px 14px;
         }
         QLineEdit#KeyInput:focus {
-            border: 1px solid #00FFCC;
+            border: 1.5px solid #00F0FF;
+            background: #080d17;
         }
 
         QCheckBox {
-            color: #8b9bb4;
+            color: #94a3b8;
             font-size: 11px;
+            font-weight: 600;
         }
         QCheckBox::indicator {
-            width: 14px;
-            height: 14px;
-            border-radius: 3px;
-            border: 1px solid #2b354c;
-            background: #090b10;
+            width: 15px;
+            height: 15px;
+            border-radius: 4px;
+            border: 1.5px solid #2e3e57;
+            background: #070a11;
         }
         QCheckBox::indicator:checked {
-            background: #00FFCC;
-            border-color: #00FFCC;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00F0FF, stop:1 #00FF88);
+            border-color: #00FF88;
         }
 
         QFrame#TopInfoBar {
-            background-color: #11151f;
-            border: 1px solid #1c2333;
-            border-radius: 8px;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(16, 23, 36, 0.95), stop:1 rgba(10, 14, 23, 0.95));
+            border: 1px solid #1c2b40;
+            border-radius: 10px;
         }
 
         QLabel#VipBadge {
-            background-color: #211538;
-            color: #c084fc;
-            border: 1px solid #7c3aed;
-            border-radius: 4px;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #4c1d95, stop:1 #7c3aed);
+            color: #f5f3ff;
+            border: 1px solid #a855f7;
+            border-radius: 6px;
             font-size: 10px;
-            font-weight: 800;
-            padding: 2px 8px;
+            font-weight: 900;
+            padding: 3px 10px;
+            letter-spacing: 1px;
             margin-right: 8px;
         }
 
@@ -964,126 +971,133 @@ class CommercialLoaderWindow(QMainWindow):
         }
 
         QLabel#SectionHeader {
-            color: #8b9bb4;
+            color: #94a3b8;
             font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 1.5px;
-            margin-top: 4px;
+            font-weight: 900;
+            letter-spacing: 2px;
+            margin-top: 2px;
         }
 
         QFrame#GameCard {
-            background-color: #11151f;
-            border: 1px solid #1c2333;
-            border-radius: 8px;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #101726, stop:1 #090e17);
+            border: 1.5px solid #1a283d;
+            border-radius: 10px;
         }
         QFrame#GameCard:hover {
-            border: 1px solid #3b4763;
-            background-color: #151a26;
+            border: 1.5px solid #00F0FF;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #152035, stop:1 #0c1421);
         }
         QFrame#GameCard[selected="true"] {
-            border: 1px solid #00FFCC;
-            background-color: #0e1e24;
+            border: 1.8px solid #00FFCC;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #0d282f, stop:1 #07151a);
         }
 
         QLabel#GameBadge {
-            color: #00FFCC;
+            color: #00F0FF;
+            background: rgba(0, 240, 255, 0.12);
+            border: 1px solid rgba(0, 240, 255, 0.35);
+            border-radius: 4px;
+            padding: 2px 6px;
             font-size: 10px;
-            font-weight: 800;
+            font-weight: 900;
         }
 
         QLabel#GameTitle {
             color: #ffffff;
             font-size: 14px;
-            font-weight: bold;
+            font-weight: 900;
+            letter-spacing: 0.5px;
         }
 
         QLabel#GameStatusOnline {
-            color: #10b981;
+            color: #00FF88;
             font-size: 10px;
-            font-weight: 800;
-            letter-spacing: 1px;
+            font-weight: 900;
+            letter-spacing: 1.5px;
             margin-top: 4px;
         }
 
         QFrame#HardwareBox {
-            background-color: #0c0f16;
-            border: 1px solid #1c2333;
-            border-radius: 8px;
+            background: rgba(8, 12, 19, 0.95);
+            border: 1px solid #1a273d;
+            border-radius: 10px;
         }
 
         QLabel#HwLabel {
-            color: #94a3b8;
+            color: #cbd5e1;
             font-size: 11px;
-            font-weight: 600;
+            font-weight: 700;
+            font-family: 'Segoe UI', 'Consolas', sans-serif;
         }
 
         QFrame#DownloadContainer {
-            background-color: #0d121c;
-            border: 1px solid #1e293b;
-            border-radius: 8px;
+            background: #080d16;
+            border: 1px solid #1c2b42;
+            border-radius: 10px;
         }
 
         QLabel#DownloadText {
-            color: #00FFCC;
+            color: #00F0FF;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        QLabel#DownloadSpeed {
+            color: #cbd5e1;
             font-size: 11px;
             font-weight: 700;
         }
 
-        QLabel#DownloadSpeed {
-            color: #94a3b8;
-            font-size: 11px;
-            font-weight: 600;
-        }
-
         QProgressBar#CyberProgressBar {
-            background-color: #111827;
-            border: 1px solid #1f2937;
-            border-radius: 4px;
+            background-color: #0a0f1a;
+            border: 1px solid #1c2a3f;
+            border-radius: 5px;
         }
 
         QProgressBar#CyberProgressBar::chunk {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00E5FF, stop:1 #00FF9D);
-            border-radius: 4px;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00F0FF, stop:0.5 #00E5FF, stop:1 #00FF88);
+            border-radius: 5px;
         }
 
         QPushButton#LaunchButton {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00E5FF, stop:1 #00FF9D);
-            color: #050b14;
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #00F0FF, stop:0.5 #00E5FF, stop:1 #00FF88);
+            color: #030712;
             font-size: 13px;
             font-weight: 900;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
         }
         QPushButton#LaunchButton:hover {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #38E1FF, stop:1 #33FFB0);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #38F8FF, stop:0.5 #33EEFF, stop:1 #33FFAA);
         }
 
         QPushButton#StopButton {
-            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF2A55, stop:1 #FF5E3A);
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #FF1744, stop:1 #FF5252);
             color: #ffffff;
             font-size: 13px;
             font-weight: 900;
-            letter-spacing: 1px;
+            letter-spacing: 1.5px;
             border: none;
-            border-radius: 8px;
+            border-radius: 10px;
         }
         QPushButton#StopButton:hover {
-            background: #ff476d;
+            background: #ff335e;
         }
 
         QPushButton#SecondaryButton {
-            background-color: #131822;
-            color: #cbd5e1;
-            border: 1px solid #232c40;
-            border-radius: 8px;
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #121927, stop:1 #0a0f18);
+            color: #e2e8f0;
+            border: 1px solid #213047;
+            border-radius: 10px;
             font-size: 11px;
-            font-weight: bold;
+            font-weight: 800;
+            letter-spacing: 0.5px;
         }
         QPushButton#SecondaryButton:hover {
-            background-color: #1c2333;
-            border-color: #384666;
-            color: #ffffff;
+            background: #182336;
+            border-color: #00F0FF;
+            color: #00F0FF;
         }
         """
         self.setStyleSheet(qss)

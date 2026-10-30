@@ -63,6 +63,9 @@ class MAKCU_AimbotEngine:
         self.is_aiming = False
         self.target_locked = None
         self._mouse_locked = False
+        self.head_lock_active = False
+        self.acc_x = 0.0
+        self.acc_y = 0.0
         self.last_move_time = 0.0
         self.last_trigger_time = 0.0
         self.trigger_burst_count = 0
@@ -296,35 +299,64 @@ class MAKCU_AimbotEngine:
                 delta_x += lead_x
                 delta_y += lead_y
 
-        # Deadzone: stable deadzone so the mouse NEVER oscillates or wiggles around the head
-        if dist_px <= 3.0:
+        # -----------------------------------------------------------------
+        # ANTI-JITTER HEAD HYSTERESIS & MICRO-LOCK (Zero Flicker on Head)
+        # -----------------------------------------------------------------
+        head_radius = max(4.0, float(best_target.get("head_w", 14.0)) * 0.35)
+        
+        # Hysteresis: lock firmly inside radius, require clear separation to unlock
+        if dist_px <= head_radius:
+            self.head_lock_active = True
+        elif dist_px > head_radius * 1.6:
+            self.head_lock_active = False
+
+        if self.head_lock_active:
+            # We are firmly on the head: lock mouse in place and wipe fractional accumulations
+            self.acc_x = 0.0
+            self.acc_y = 0.0
+            move_x = 0
+            move_y = 0
+
+            # Gentle smooth tracking only if enemy is actively running (> 30 px/s)
+            if ("vx" in best_target) and ("vy" in best_target):
+                tv_x = best_target.get("vx", 0.0)
+                tv_y = best_target.get("vy", 0.0)
+                if math.hypot(tv_x, tv_y) > 30.0:
+                    step_x = (delta_x + tv_x * 0.020) * 0.25
+                    step_y = (delta_y + tv_y * 0.020) * 0.25
+                    move_x = int(round(step_x))
+                    move_y = int(round(step_y))
+
             click_cmd = self._evaluate_triggerbot(best_target, crosshair_x, crosshair_y, move_dist=0.0, lead_x=0.0, lead_y=0.0)
-            if click_cmd:
+            if move_x != 0 or move_y != 0 or click_cmd:
                 try:
                     ser = getattr(getattr(self.controller, "transport", None), "serial", None)
                     if ser and getattr(ser, "is_open", False):
-                        ser.write(click_cmd)
-                    elif self.controller and MouseButton:
-                        self.controller.click(MouseButton.LEFT)
+                        packet = bytearray()
+                        if move_x != 0 or move_y != 0:
+                            packet += b"km.move(%d,%d)\r\n" % (move_x, move_y)
+                        if click_cmd:
+                            packet += click_cmd
+                        ser.write(packet)
+                    else:
+                        if move_x != 0 or move_y != 0:
+                            self.controller.move(move_x, move_y)
+                        if click_cmd and MouseButton:
+                            self.controller.click(MouseButton.LEFT)
                 except Exception:
                     pass
             return
 
         # Clean Linear Snap (Zero Wiggle, Zero Overshoot)
-        # S-Curve damping prevents the mouse from oscillating back and forth across the head
         snap_smooth = max(1.0, smooth)
         if snap_smooth <= 1.05:
-            # Clean snappy move with critically damped landing:
-            # 75% step per frame = reaches head in 2 fast frames without ever overshooting
-            step_x = delta_x * 0.75
-            step_y = delta_y * 0.75
-            max_step = 60.0
-        elif dist_px <= 5.0:
-            step_x = delta_x * 0.50
-            step_y = delta_y * 0.50
-            max_step = 25.0
+            step_x = delta_x * 0.70
+            step_y = delta_y * 0.70
+            max_step = 55.0
         else:
-            curve_smooth = max(1.2, snap_smooth * 0.80)
+            # Distance-adaptive curve: fast closing speed from afar, critically damped landing
+            dist_factor = min(2.5, max(0.85, dist_px / 35.0))
+            curve_smooth = max(1.15, snap_smooth * 0.75) * (1.0 / dist_factor)
             step_x = delta_x / curve_smooth
             step_y = delta_y / curve_smooth
             max_step = 45.0
@@ -332,8 +364,13 @@ class MAKCU_AimbotEngine:
         step_x = max(-max_step, min(max_step, step_x))
         step_y = max(-max_step, min(max_step, step_y))
 
-        move_x = int(round(step_x))
-        move_y = int(round(step_y))
+        # Fractional Sub-Pixel Accumulator (prevents 1-pixel rounding twitching)
+        self.acc_x += step_x
+        self.acc_y += step_y
+        move_x = int(self.acc_x)
+        move_y = int(self.acc_y)
+        self.acc_x -= move_x
+        self.acc_y -= move_y
 
         # Check triggerbot in the same frame (with lead prediction included!)
         move_dist = math.hypot(move_x, move_y)
