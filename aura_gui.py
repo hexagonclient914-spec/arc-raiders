@@ -1,7 +1,7 @@
 """
 AURA TACTICAL VISION // CYBER-RED ELITE HUD GUI
 Full-featured, ultra-sleek cyber-tactical graphical interface matching
-the official AURA visual spec with hardware-accelerated rendering.
+the official AURA visual spec with 100% pure vector graphics and dedicated AI Engine Hub.
 """
 
 import os
@@ -13,17 +13,121 @@ import ctypes
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QSlider, QComboBox, QCheckBox, QFrame,
-    QStackedWidget, QGraphicsDropShadowEffect, QFileDialog, QMessageBox
+    QStackedWidget, QGraphicsDropShadowEffect, QFileDialog, QMessageBox,
+    QGridLayout
 )
 from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
 from PyQt6.QtGui import (
     QColor, QFont, QCursor, QIcon, QPainter, QBrush, QPen,
-    QLinearGradient, QPixmap
+    QLinearGradient, QPainterPath
 )
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "yolo_config.json")
-ASSETS_DIR = os.path.join(BASE_DIR, "gui_assets")
+
+
+# =====================================================================
+# PURE VECTOR GRAPHIC WIDGETS (NO PNGs)
+# =====================================================================
+class VectorCrosshairWidget(QWidget):
+    """Razor-sharp vector tactical HUD crosshair drawn with QPainter."""
+    def __init__(self, size=54, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w, h = float(self.width()), float(self.height())
+        cx, cy = w / 2.0, h / 2.0
+        r_outer = min(cx, cy) - 3.0
+        r_mid = r_outer * 0.72
+        r_inner = r_outer * 0.35
+
+        # Outer cyber bracket accents
+        p.setPen(QPen(QColor("#FF1744"), 1.8))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+
+        gap = 18.0  # degrees
+        for angle in (45, 135, 225, 315):
+            p.drawArc(QRectF(cx - r_outer, cy - r_outer, r_outer * 2, r_outer * 2), int((angle - gap/2) * 16), int(gap * 16))
+
+        # Middle Ring with subtle glow
+        p.setPen(QPen(QColor("#FF2D55"), 2.2))
+        p.drawEllipse(QPointF(cx, cy), r_mid, r_mid)
+
+        # Crosshair Reticle lines
+        p.setPen(QPen(QColor("#FF1744"), 2.0))
+        # Top line
+        p.drawLine(QPointF(cx, cy - r_outer), QPointF(cx, cy - r_inner))
+        # Bottom line
+        p.drawLine(QPointF(cx, cy + r_inner), QPointF(cx, cy + r_outer))
+        # Left line
+        p.drawLine(QPointF(cx - r_outer, cy), QPointF(cx - r_inner, cy))
+        # Right line
+        p.drawLine(QPointF(cx + r_inner, cy), QPointF(cx + r_outer, cy))
+
+        # Center Precision Dot
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QBrush(QColor("#FFFFFF")))
+        p.drawEllipse(QPointF(cx, cy), 2.2, 2.2)
+        p.end()
+
+
+class VectorShieldWidget(QWidget):
+    """Pure vector Undetected Shield with neon green gradient and checkmark."""
+    def __init__(self, size=64, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(size, size)
+
+    def paintEvent(self, e):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        w, h = float(self.width()), float(self.height())
+        cx, cy = w / 2.0, h / 2.0
+        r = min(cx, cy) - 4.0
+
+        # Glowing Neon Green Ring
+        p.setPen(QPen(QColor("#00FF66"), 2.2))
+        grad = QLinearGradient(0, 0, w, h)
+        grad.setColorAt(0, QColor(0, 255, 102, 35))
+        grad.setColorAt(1, QColor(0, 204, 68, 15))
+        p.setBrush(QBrush(grad))
+        p.drawEllipse(QPointF(cx, cy), r, r)
+
+        # Inner Shield Path
+        path = QPainterPath()
+        sw = r * 0.95
+        sh = r * 1.15
+        top = cy - sh * 0.45
+        left = cx - sw * 0.5
+        right = cx + sw * 0.5
+        mid_y = cy + sh * 0.05
+        bottom = cy + sh * 0.55
+
+        path.moveTo(cx, top)
+        path.lineTo(right, top + 6.0)
+        path.quadTo(right, mid_y, cx, bottom)
+        path.quadTo(left, mid_y, left, top + 6.0)
+        path.closeSubpath()
+
+        p.setPen(QPen(QColor("#00FF66"), 1.8))
+        shield_grad = QLinearGradient(0, top, 0, bottom)
+        shield_grad.setColorAt(0, QColor(0, 255, 102, 60))
+        shield_grad.setColorAt(1, QColor(0, 204, 68, 180))
+        p.setBrush(QBrush(shield_grad))
+        p.drawPath(path)
+
+        # Crisp White Checkmark
+        p.setPen(QPen(QColor("#FFFFFF"), 2.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+        chk = QPainterPath()
+        chk.moveTo(cx - 7.5, cy + 0.5)
+        chk.lineTo(cx - 2.0, cy + 6.0)
+        chk.lineTo(cx + 8.5, cy - 5.5)
+        p.drawPath(chk)
+        p.end()
 
 
 # =====================================================================
@@ -148,7 +252,6 @@ class AuraEliteHUDWindow(QMainWindow):
     # UI INITIALIZATION & LAYOUT
     # -----------------------------------------------------------------
     def _init_ui(self):
-        # Outer shell
         self.central_widget = QFrame(self)
         self.central_widget.setObjectName("RootChassis")
         self.setCentralWidget(self.central_widget)
@@ -163,7 +266,7 @@ class AuraEliteHUDWindow(QMainWindow):
         main_vbox.setContentsMargins(0, 0, 0, 0)
         main_vbox.setSpacing(0)
 
-        # 1. TOP HEADER / TITLEBAR
+        # 1. TOP HEADER / TITLEBAR (Pure Vector)
         main_vbox.addWidget(self._build_top_header())
 
         # 2. BODY (Sidebar + Stacked Content)
@@ -176,9 +279,9 @@ class AuraEliteHUDWindow(QMainWindow):
 
         # Main Pages (Stacked)
         self.stack = QStackedWidget()
-        self.stack.addWidget(self._build_aimbot_page())    # Index 0: Aimbot (matching screenshot)
-        self.stack.addWidget(self._build_esp_page())       # Index 1: ESP
-        self.stack.addWidget(self._build_settings_page())  # Index 2: Settings (Dual-PC, Hardware)
+        self.stack.addWidget(self._build_aimbot_page())    # Index 0: Aimbot
+        self.stack.addWidget(self._build_ai_engine_page()) # Index 1: AI Engine (replaces ESP)
+        self.stack.addWidget(self._build_settings_page())  # Index 2: Settings (Dual-PC / Hardware)
         self.stack.addWidget(self._build_configs_page())   # Index 3: Configs
         self.stack.addWidget(self._build_about_page())     # Index 4: About
 
@@ -189,7 +292,7 @@ class AuraEliteHUDWindow(QMainWindow):
         main_vbox.addWidget(self._build_bottom_bar())
 
     # -----------------------------------------------------------------
-    # TOP HEADER WIDGET
+    # TOP HEADER WIDGET (Vector Graphics)
     # -----------------------------------------------------------------
     def _build_top_header(self) -> QWidget:
         header = QFrame()
@@ -199,36 +302,26 @@ class AuraEliteHUDWindow(QMainWindow):
         h_lay.setContentsMargins(18, 6, 18, 6)
         h_lay.setSpacing(14)
 
-        # Left: Crosshair Badge
-        crosshair_path = os.path.join(ASSETS_DIR, "crosshair.png")
-        lbl_cross = QLabel()
-        if os.path.exists(crosshair_path):
-            pix = QPixmap(crosshair_path).scaled(56, 56, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            lbl_cross.setPixmap(pix)
-        else:
-            lbl_cross.setText("🎯")
-            lbl_cross.setStyleSheet("font-size: 28px;")
-        h_lay.addWidget(lbl_cross)
+        # Left: Pure Vector Crosshair Badge
+        self.vec_crosshair = VectorCrosshairWidget(size=50)
+        h_lay.addWidget(self.vec_crosshair)
 
         h_lay.addStretch()
 
-        # Center: AURA Title Banner
-        banner_path = os.path.join(ASSETS_DIR, "title_banner.png")
-        if os.path.exists(banner_path):
-            lbl_banner = QLabel()
-            pix = QPixmap(banner_path).scaled(240, 52, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            lbl_banner.setPixmap(pix)
-            h_lay.addWidget(lbl_banner)
-        else:
-            v_title = QVBoxLayout()
-            v_title.setSpacing(0)
-            lbl_crown = QLabel("👑 AURA")
-            lbl_crown.setObjectName("TitleAura")
-            lbl_slogan = QLabel("SMARTER. SMOOTHER. DEADLIER.")
-            lbl_slogan.setObjectName("TitleSlogan")
-            v_title.addWidget(lbl_crown, alignment=Qt.AlignmentFlag.AlignCenter)
-            v_title.addWidget(lbl_slogan, alignment=Qt.AlignmentFlag.AlignCenter)
-            h_lay.addLayout(v_title)
+        # Center: Pure Vector Typography Title
+        v_title = QVBoxLayout()
+        v_title.setSpacing(1)
+        lbl_crown = QLabel("👑 AURA")
+        lbl_crown.setObjectName("TitleAura")
+        lbl_crown.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        lbl_slogan = QLabel("SMARTER. SMOOTHER. DEADLIER.")
+        lbl_slogan.setObjectName("TitleSlogan")
+        lbl_slogan.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        v_title.addWidget(lbl_crown)
+        v_title.addWidget(lbl_slogan)
+        h_lay.addLayout(v_title)
 
         h_lay.addStretch()
 
@@ -269,20 +362,21 @@ class AuraEliteHUDWindow(QMainWindow):
         return header
 
     # -----------------------------------------------------------------
-    # LEFT VERTICAL SIDEBAR
+    # LEFT VERTICAL SIDEBAR (Clean vector HUD)
     # -----------------------------------------------------------------
     def _build_sidebar(self) -> QWidget:
         sidebar = QFrame()
         sidebar.setObjectName("SidebarFrame")
         sidebar.setFixedWidth(168)
         s_lay = QVBoxLayout(sidebar)
-        s_lay.setContentsMargins(10, 14, 10, 10)
+        s_lay.setContentsMargins(10, 14, 10, 12)
         s_lay.setSpacing(8)
 
         self.nav_buttons = []
+        # Tab 1: AI Engine replaces ESP
         tabs = [
             ("🎯", "Aimbot", 0),
-            ("🖥️", "ESP", 1),
+            ("⚡", "AI Engine", 1),
             ("⚙️", "Settings", 2),
             ("📁", "Configs", 3),
             ("ℹ️", "About", 4),
@@ -302,15 +396,29 @@ class AuraEliteHUDWindow(QMainWindow):
 
         s_lay.addStretch()
 
-        # Soldier Graphic at bottom
-        soldier_path = os.path.join(ASSETS_DIR, "soldier.png")
-        if os.path.exists(soldier_path):
-            lbl_soldier = QLabel()
-            pix = QPixmap(soldier_path).scaled(148, 148, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            lbl_soldier.setPixmap(pix)
-            lbl_soldier.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            s_lay.addWidget(lbl_soldier)
+        # Clean Cyber Telemetry HUD Box (replaces soldier PNG)
+        hud_box = QFrame()
+        hud_box.setObjectName("SidebarHudBox")
+        hud_lay = QVBoxLayout(hud_box)
+        hud_lay.setContentsMargins(10, 10, 10, 10)
+        hud_lay.setSpacing(4)
 
+        lbl_hud_title = QLabel("SYSTEM TELEMETRY")
+        lbl_hud_title.setObjectName("HudHeader")
+        hud_lay.addWidget(lbl_hud_title)
+
+        lbl_gpu_val = QLabel("🎮 RTX 4070")
+        lbl_gpu_val.setObjectName("HudItem")
+        lbl_prec_val = QLabel("⚡ TRT 10 (FP16)")
+        lbl_prec_val.setObjectName("HudItem")
+        lbl_fps_val = QLabel("🚀 280+ FPS")
+        lbl_fps_val.setObjectName("HudItemHighlight")
+
+        hud_lay.addWidget(lbl_gpu_val)
+        hud_lay.addWidget(lbl_prec_val)
+        hud_lay.addWidget(lbl_fps_val)
+
+        s_lay.addWidget(hud_box)
         return sidebar
 
     def _switch_tab(self, index: int):
@@ -323,7 +431,7 @@ class AuraEliteHUDWindow(QMainWindow):
             b.style().polish(b)
 
     # -----------------------------------------------------------------
-    # PAGE 0: AIMBOT TAB (Exact layout matching user's image)
+    # PAGE 0: AIMBOT TAB
     # -----------------------------------------------------------------
     def _build_aimbot_page(self) -> QWidget:
         page = QWidget()
@@ -489,7 +597,7 @@ class AuraEliteHUDWindow(QMainWindow):
         c4_lay.addStretch()
         col3.addWidget(c4, stretch=3)
 
-        # Card: Detection Status
+        # Card: Detection Status (Vector Shield)
         c5 = CyberCard("Detection Status", "🛡️")
         c5_lay = c5.card_layout
 
@@ -497,16 +605,8 @@ class AuraEliteHUDWindow(QMainWindow):
         shield_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         shield_lay.setSpacing(4)
 
-        shield_path = os.path.join(ASSETS_DIR, "shield.png")
-        lbl_shield = QLabel()
-        if os.path.exists(shield_path):
-            pix = QPixmap(shield_path).scaled(64, 64, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            lbl_shield.setPixmap(pix)
-        else:
-            lbl_shield.setText("🛡️")
-            lbl_shield.setStyleSheet("font-size: 36px;")
-        lbl_shield.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        shield_lay.addWidget(lbl_shield)
+        self.vec_shield = VectorShieldWidget(size=60)
+        shield_lay.addWidget(self.vec_shield, alignment=Qt.AlignmentFlag.AlignCenter)
 
         lbl_undetected = QLabel("Undetected")
         lbl_undetected.setObjectName("UndetectedTitle")
@@ -568,23 +668,190 @@ class AuraEliteHUDWindow(QMainWindow):
             self.lbl_aim_state.setStyleSheet("color: #64748B; font-weight: 900; font-size: 13px;")
 
     # -----------------------------------------------------------------
-    # PAGE 1: ESP CUSTOMIZATION TAB
+    # PAGE 1: DEDICATED AI ENGINE & MODEL HUB (Replaces ESP)
     # -----------------------------------------------------------------
-    def _build_esp_page(self) -> QWidget:
+    def _build_ai_engine_page(self) -> QWidget:
         page = QWidget()
-        lay = QVBoxLayout(page)
-        card = CyberCard("Visual Overlay & ESP Customization", "🖥️")
-        c_lay = card.card_layout
+        lay = QHBoxLayout(page)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
 
-        info = QLabel(
-            "Configure real-time HUD rendering, bounding boxes, tracers, and stance markers.\n"
-            "All visual elements are drawn transparently via hardware Direct2D overlays."
-        )
-        info.setObjectName("SubText")
-        c_lay.addWidget(info)
-        c_lay.addStretch()
-        lay.addWidget(card)
+        # -------------------------------------------------------------
+        # LEFT CARD: Neural Model Hub
+        # -------------------------------------------------------------
+        c_models = CyberCard("Neural Vision Models", "⚡")
+        m_lay = c_models.card_layout
+
+        lbl_desc = QLabel("Select active AI Detection Engine or load custom weights:")
+        lbl_desc.setObjectName("ControlSub")
+        m_lay.addWidget(lbl_desc)
+
+        # Game Models Dropdown
+        self.combo_model = QComboBox()
+        self.combo_model.setObjectName("CyberCombo")
+        self.combo_model.setFixedHeight(34)
+        self.model_items = [
+            ("valorant", "Valorant 30K [High-Speed TensorRT 10]", "valorant_30k_640.engine"),
+            ("fortnite", "Fortnite 100K [Anatomical Head-Lock 260+ FPS]", "fortnite_100k.engine"),
+            ("arc_raiders", "ARC Raiders [YOLOv11 Raider Engine]", "arc_raiders_yolo11_better.engine"),
+            ("cs2", "Counter-Strike 2 [Head/Neck Direct TRT]", "GGMCS2.engine"),
+            ("battlefield_2042", "Battlefield 2042 [FP16 TRT 10]", "battlefield_2042.engine"),
+        ]
+        for _, label, eng in self.model_items:
+            self.combo_model.addItem(f"🎮  {label}", eng)
+        self.combo_model.currentIndexChanged.connect(self._on_model_changed)
+        m_lay.addWidget(self.combo_model)
+
+        # Custom Model File Browser
+        btn_browse = QPushButton("📂 Browse Custom Model (.engine / .onnx / .pt)...")
+        btn_browse.setObjectName("ActionBtn")
+        btn_browse.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_browse.clicked.connect(self._handle_browse_custom_model)
+        m_lay.addWidget(btn_browse)
+
+        # Model Telemetry HUD Badge
+        self.model_hud = QFrame()
+        self.model_hud.setObjectName("ModelHudFrame")
+        h_lay = QVBoxLayout(self.model_hud)
+        h_lay.setContentsMargins(12, 10, 12, 10)
+        h_lay.setSpacing(4)
+
+        self.lbl_hud_name = QLabel("Active: valorant_30k_640.engine")
+        self.lbl_hud_name.setObjectName("HudHeader")
+        self.lbl_hud_spec = QLabel("Format: Direct TensorRT 10 · Input: (1, 3, 640, 640) BCHW")
+        self.lbl_hud_spec.setObjectName("HudItem")
+        self.lbl_hud_speed = QLabel("Benchmark: ~280+ FPS @ 0.05ms Capture Latency")
+        self.lbl_hud_speed.setObjectName("HudItemHighlight")
+
+        h_lay.addWidget(self.lbl_hud_name)
+        h_lay.addWidget(self.lbl_hud_spec)
+        h_lay.addWidget(self.lbl_hud_speed)
+        m_lay.addWidget(self.model_hud)
+
+        m_lay.addStretch()
+
+        # Auto Converter Button
+        btn_convert = QPushButton("⚡ Auto-Compile Engine for RTX 4070 (TRT 10/11)")
+        btn_convert.setObjectName("ApplyButton")
+        btn_convert.setFixedHeight(34)
+        btn_convert.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn_convert.clicked.connect(self._handle_auto_convert)
+        m_lay.addWidget(btn_convert)
+
+        lay.addWidget(c_models, stretch=3)
+
+        # -------------------------------------------------------------
+        # RIGHT CARD: Vision & Inference Pipeline Tuning
+        # -------------------------------------------------------------
+        c_tuning = CyberCard("Inference Pipeline Tuning", "🧠")
+        t_lay = c_tuning.card_layout
+
+        # Confidence Threshold Slider
+        c_head = QHBoxLayout()
+        v_c_info = QVBoxLayout()
+        lbl_c = QLabel("Confidence Threshold")
+        lbl_c.setObjectName("ControlTitle")
+        lbl_c_sub = QLabel("Minimum AI detection confidence")
+        lbl_c_sub.setObjectName("ControlSub")
+        v_c_info.addWidget(lbl_c)
+        v_c_info.addWidget(lbl_c_sub)
+        c_head.addLayout(v_c_info)
+        c_head.addStretch()
+        self.lbl_conf_val = QLabel("0.70")
+        self.lbl_conf_val.setObjectName("ValueBadge")
+        c_head.addWidget(self.lbl_conf_val)
+        t_lay.addLayout(c_head)
+
+        self.slider_conf = QSlider(Qt.Orientation.Horizontal)
+        self.slider_conf.setObjectName("CyberSlider")
+        self.slider_conf.setRange(20, 95)
+        self.slider_conf.setValue(70)
+        self.slider_conf.valueChanged.connect(lambda v: self.lbl_conf_val.setText(f"{v/100.0:.2f}"))
+        t_lay.addWidget(self.slider_conf)
+
+        # IoU NMS Suppression Slider
+        t_lay.addSpacing(6)
+        iou_head = QHBoxLayout()
+        v_i_info = QVBoxLayout()
+        lbl_i = QLabel("IoU NMS Overlap")
+        lbl_i.setObjectName("ControlTitle")
+        lbl_i_sub = QLabel("Suppresses duplicate bounding boxes")
+        lbl_i_sub.setObjectName("ControlSub")
+        v_i_info.addWidget(lbl_i)
+        v_i_info.addWidget(lbl_i_sub)
+        iou_head.addLayout(v_i_info)
+        iou_head.addStretch()
+        self.lbl_iou_val = QLabel("0.45")
+        self.lbl_iou_val.setObjectName("ValueBadge")
+        iou_head.addWidget(self.lbl_iou_val)
+        t_lay.addLayout(iou_head)
+
+        self.slider_iou = QSlider(Qt.Orientation.Horizontal)
+        self.slider_iou.setObjectName("CyberSlider")
+        self.slider_iou.setRange(15, 80)
+        self.slider_iou.setValue(45)
+        self.slider_iou.valueChanged.connect(lambda v: self.lbl_iou_val.setText(f"{v/100.0:.2f}"))
+        t_lay.addWidget(self.slider_iou)
+
+        # Scan Region Mode Dropdown
+        t_lay.addSpacing(6)
+        lbl_scan = QLabel("Scan Region Mode:")
+        lbl_scan.setObjectName("ControlTitle")
+        t_lay.addWidget(lbl_scan)
+
+        self.combo_scan_mode = QComboBox()
+        self.combo_scan_mode.setObjectName("CyberCombo")
+        self.combo_scan_mode.addItems([
+            "Center 480x480 (Combat Zoom - Lowest Latency)",
+            "Center 640x640 (Balanced Detection Zone)",
+            "Fullscreen 1920x1080 (Wide Radar Scan)"
+        ])
+        t_lay.addWidget(self.combo_scan_mode)
+
+        # Advanced Pipeline Checkboxes
+        t_lay.addSpacing(8)
+        self.chk_zoom = self._create_checkbox_row(t_lay, "Dynamic Combat Zoom", "Auto-focuses region during active fire", checked=True)
+        self.chk_half = self._create_checkbox_row(t_lay, "Half-Precision (FP16)", "Hardware Tensor Core acceleration", checked=True)
+        self.chk_nms = self._create_checkbox_row(t_lay, "Agnostic NMS", "Faster non-maximum suppression", checked=True)
+
+        t_lay.addStretch()
+        lay.addWidget(c_tuning, stretch=2)
+
         return page
+
+    def _on_model_changed(self, idx: int):
+        if idx < 0 or idx >= len(self.model_items):
+            return
+        gid, name, eng = self.model_items[idx]
+        self.config_data["active_game_profile"] = gid
+        self.config_data["model_path"] = eng
+        self.lbl_hud_name.setText(f"Active: {eng}")
+        self.lbl_hud_spec.setText(f"Game: {name} · FP16 TensorRT 10/11")
+
+    def _handle_browse_custom_model(self):
+        fpath, _ = QFileDialog.getOpenFileName(
+            self, "Select Neural Model", BASE_DIR,
+            "Neural Engine Files (*.engine *.onnx *.pt)"
+        )
+        if fpath and os.path.exists(fpath):
+            fname = os.path.basename(fpath)
+            self.config_data["model_path"] = fname
+            self.lbl_hud_name.setText(f"Custom: {fname}")
+            self.lbl_hud_spec.setText("Format: Custom Weights Ingestion")
+            self.combo_model.setCurrentIndex(-1)
+
+    def _handle_auto_convert(self):
+        try:
+            import subprocess
+            py_cmd = sys.executable or "py"
+            subprocess.Popen([py_cmd, "auto_converter.py"], cwd=BASE_DIR)
+            QMessageBox.information(
+                self, "Auto-Converter Started",
+                "Universal TensorRT 10/11 Compiler started in background.\n"
+                "Your RTX 4070 will build optimized engines for all models."
+            )
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to launch auto-converter: {e}")
 
     # -----------------------------------------------------------------
     # PAGE 2: HARDWARE & DUAL-PC SETTINGS TAB
@@ -768,6 +1035,33 @@ class AuraEliteHUDWindow(QMainWindow):
         self.sw_snapline.setChecked(bool(cfg.get("show_snaplines", True)))
         self.sw_esp_dist.setChecked(bool(cfg.get("show_distance", True)))
 
+        # AI Engine Page Sync
+        active_prof = str(cfg.get("active_game_profile", "valorant")).lower()
+        for idx, (gid, _, _) in enumerate(self.model_items):
+            if gid in active_prof:
+                self.combo_model.setCurrentIndex(idx)
+                break
+
+        conf = float(cfg.get("confidence_threshold", 0.70))
+        self.slider_conf.setValue(int(conf * 100))
+        self.lbl_conf_val.setText(f"{conf:.2f}")
+
+        iou = float(cfg.get("iou_threshold", 0.45))
+        self.slider_iou.setValue(int(iou * 100))
+        self.lbl_iou_val.setText(f"{iou:.2f}")
+
+        s_mode = str(cfg.get("scan_region_mode", "center_480")).lower()
+        if "640" in s_mode:
+            self.combo_scan_mode.setCurrentIndex(1)
+        elif "full" in s_mode:
+            self.combo_scan_mode.setCurrentIndex(2)
+        else:
+            self.combo_scan_mode.setCurrentIndex(0)
+
+        self.chk_zoom.setChecked(bool(cfg.get("dynamic_combat_zoom", True)))
+        self.chk_half.setChecked(bool(cfg.get("use_half_precision", True)))
+        self.chk_nms.setChecked(bool(cfg.get("agnostic_nms", True)))
+
     def _handle_apply_settings(self):
         # Update config dict
         self.config_data["makcu_fov"] = self.slider_fov.value()
@@ -788,12 +1082,24 @@ class AuraEliteHUDWindow(QMainWindow):
         self.config_data["show_snaplines"] = self.sw_snapline.isChecked()
         self.config_data["show_distance"] = self.sw_esp_dist.isChecked()
 
+        # AI Engine Page Settings
+        self.config_data["confidence_threshold"] = self.slider_conf.value() / 100.0
+        self.config_data["iou_threshold"] = self.slider_iou.value() / 100.0
+
+        scan_idx = self.combo_scan_mode.currentIndex()
+        scan_map = {0: "center_480", 1: "center_640", 2: "fullscreen"}
+        self.config_data["scan_region_mode"] = scan_map.get(scan_idx, "center_480")
+
+        self.config_data["dynamic_combat_zoom"] = self.chk_zoom.isChecked()
+        self.config_data["use_half_precision"] = self.chk_half.isChecked()
+        self.config_data["agnostic_nms"] = self.chk_nms.isChecked()
+
         self._save_config()
 
         self.btn_apply.setText("✔  SETTINGS SAVED!")
         self.btn_apply.setStyleSheet("background: #00FF66; color: #000000; font-weight: 900; border-radius: 6px;")
         QApplication.processEvents()
-        time.sleep(0.4)
+        time.sleep(0.35)
         self.btn_apply.setText("✔  Apply Settings")
         self.btn_apply.setStyleSheet("")
 
@@ -836,6 +1142,9 @@ class AuraEliteHUDWindow(QMainWindow):
         self.sw_esp_name.setChecked(False)
         self.sw_esp_dist.setChecked(True)
         self.sw_snapline.setChecked(True)
+        self.slider_conf.setValue(70)
+        self.slider_iou.setValue(45)
+        self.combo_scan_mode.setCurrentIndex(0)
         self._handle_apply_settings()
 
     # -----------------------------------------------------------------
@@ -955,6 +1264,29 @@ class AuraEliteHUDWindow(QMainWindow):
             background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #E50914, stop:1 #A8000A);
             color: #FFFFFF;
             border: 1px solid #FF3355;
+            font-weight: 900;
+        }
+
+        /* Sidebar Telemetry HUD Box */
+        QFrame#SidebarHudBox {
+            background: #0a0c12;
+            border: 1px solid #1c2738;
+            border-radius: 8px;
+        }
+        QLabel#HudHeader {
+            color: #FF1744;
+            font-size: 9px;
+            font-weight: 900;
+            letter-spacing: 1px;
+        }
+        QLabel#HudItem {
+            color: #94A3B8;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        QLabel#HudItemHighlight {
+            color: #00FF66;
+            font-size: 11px;
             font-weight: 900;
         }
 
@@ -1096,6 +1428,13 @@ class AuraEliteHUDWindow(QMainWindow):
             font-weight: 600;
         }
 
+        /* Model HUD Frame */
+        QFrame#ModelHudFrame {
+            background: #090c13;
+            border: 1px solid #1a273b;
+            border-radius: 8px;
+        }
+
         /* Bottom Bar */
         QFrame#BottomBar {
             background: #090B10;
@@ -1162,9 +1501,19 @@ class AuraEliteHUDWindow(QMainWindow):
 
 
 def main():
+    try:
+        user32 = ctypes.windll.user32
+        h_desk = user32.OpenDesktopW("Default", 0, False, 0x01FF)
+        if h_desk:
+            user32.SetThreadDesktop(h_desk)
+    except Exception:
+        pass
+
     app = QApplication(sys.argv)
     win = AuraEliteHUDWindow()
     win.show()
+    win.raise_()
+    win.activateWindow()
     sys.exit(app.exec())
 
 
