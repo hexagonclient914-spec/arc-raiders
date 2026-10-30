@@ -43,20 +43,27 @@ CONFIG_FILE = os.path.join(BASE_DIR, "yolo_config.json")
 
 
 def get_runtime_python() -> str:
-    """Find Python runtime on system, even when running inside standalone compiled Loader.exe."""
+    """Find valid Python runtime on system, avoiding WindowsApps stubs."""
     import shutil
-    # Standard locations
-    local_p11 = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python311\python.exe")
-    if os.path.exists(local_p11):
-        return local_p11
-    local_p12 = os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python312\python.exe")
-    if os.path.exists(local_p12):
-        return local_p12
+    candidates = [
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python311\python.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Programs\Python\Python312\python.exe"),
+        r"C:\Python311\python.exe",
+        r"C:\Python312\python.exe",
+        r"C:\Program Files\Python311\python.exe",
+        r"C:\Program Files\Python312\python.exe",
+    ]
+    for c in candidates:
+        if os.path.isfile(c):
+            return c
+
     if shutil.which("py"):
         return "py"
-    if shutil.which("python"):
-        return "python"
-    # Fallback to sys.executable if not frozen
+
+    py_cmd = shutil.which("python")
+    if py_cmd and "WindowsApps" not in py_cmd:
+        return py_cmd
+
     if not getattr(sys, "frozen", False):
         return sys.executable
     return "python"
@@ -693,11 +700,15 @@ class CommercialLoaderWindow(QMainWindow):
             return
 
         try:
+            log_path = os.path.join(active_dir, "engine_output.log")
+            self.log_file = open(log_path, "w", encoding="utf-8", errors="replace")
             # Start detached process with no console window
             creation_flags = 0x08000000  # CREATE_NO_WINDOW
             self.active_process = subprocess.Popen(
                 [py_cmd, target_script],
                 cwd=active_dir,
+                stdout=self.log_file,
+                stderr=subprocess.STDOUT,
                 creationflags=creation_flags
             )
             self.uptime_seconds = 0
@@ -721,7 +732,25 @@ class CommercialLoaderWindow(QMainWindow):
                 self.btn_launch.setObjectName("LaunchButton")
                 self.btn_launch.style().unpolish(self.btn_launch)
                 self.btn_launch.style().polish(self.btn_launch)
-                self.lbl_status.setText("Vision Engine terminated.")
+                
+                # Check engine_output.log for exact error
+                err_hint = ""
+                active_dir = get_active_payload_dir()
+                log_path = os.path.join(active_dir, "engine_output.log")
+                if os.path.exists(log_path):
+                    try:
+                        with open(log_path, "r", encoding="utf-8", errors="ignore") as lf:
+                            content = lf.read().strip()
+                            if content:
+                                lines = [l.strip() for l in content.split("\n") if l.strip()]
+                                if lines:
+                                    err_hint = lines[-1]
+                    except Exception:
+                        pass
+                if err_hint:
+                    self.lbl_status.setText(f"Terminated: {err_hint[:50]}")
+                else:
+                    self.lbl_status.setText("Vision Engine terminated.")
 
     def _open_settings(self):
         # Trigger F8 or start settings standalone

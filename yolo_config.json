@@ -1,5 +1,5 @@
 {
-    "enabled": false,
+    "enabled": true,
     "model_path": "valorant_30k_640.engine",
     "device": "cuda:0",
     "confidence_threshold": 0.71,
@@ -54,7 +54,7 @@
     "hotkey_sound": true,
     "auto_eco_mode": true,
     "high_process_priority": true,
-    "makcu_enabled": false,
+    "makcu_enabled": true,
     "makcu_port": "auto",
     "makcu_aim_key": "always",
     "makcu_fov": 61,

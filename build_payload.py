@@ -38,6 +38,10 @@ FILES_TO_PACK = [
     "Setup_My_GPU.bat",
     "Install_CUDA_Acceleration.bat",
     "Check_GPU_and_Run.bat",
+    "find_com_ports.py",
+    "Find_COM_Ports.bat",
+    "export_tensorrt.py",
+    "Boost_To_160_FPS.bat",
     
     # Engine Models (Fast TensorRT 10 for RTX 40-series)
     "valorant_30k_640.engine",

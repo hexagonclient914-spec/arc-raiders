@@ -55,5 +55,12 @@ def export_model_to_tensorrt(model_path="arc_raiders_yolo11n.pt", imgsz=640, hal
         return None
 
 if __name__ == "__main__":
-    target = sys.argv[1] if len(sys.argv) > 1 else "arc_raiders_yolo11n.pt"
+    if len(sys.argv) > 1:
+        target = sys.argv[1]
+    elif os.path.exists("valorant_30k_640.pt"):
+        target = "valorant_30k_640.pt"
+    elif os.path.exists("arc_raiders_yolo11n.pt"):
+        target = "arc_raiders_yolo11n.pt"
+    else:
+        target = "GGMCS2.pt"
     export_model_to_tensorrt(target)
