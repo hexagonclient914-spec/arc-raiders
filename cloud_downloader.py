@@ -20,7 +20,37 @@ import urllib.error
 from PyQt6.QtCore import QThread, pyqtSignal
 
 LOCAL_APP_DIR = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "AuraTacticalClient")
-DEFAULT_CLOUD_URL = "https://drive.google.com/file/d/1wxJwt-vY3BGEppU5b2TfM-4Be0CdEVeE/view?usp=drive_link"
+DEFAULT_CLOUD_URL = "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/releases/latest"
+
+
+def get_github_token() -> str:
+    """Retrieves GitHub token from env, loader_auth.json, or gh CLI."""
+    token = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if token:
+        return token.strip()
+
+    base_dir = get_base_dir()
+    auth_file = os.path.join(base_dir, "loader_auth.json")
+    if os.path.exists(auth_file):
+        try:
+            with open(auth_file, "r", encoding="utf-8") as f:
+                d = json.load(f)
+                if d.get("github_token"):
+                    return d["github_token"].strip()
+        except Exception:
+            pass
+
+    try:
+        import subprocess
+        gh_exe = shutil.which("gh") or os.path.expandvars(r"%LOCALAPPDATA%\Programs\gh\gh.exe")
+        if os.path.exists(gh_exe):
+            res = subprocess.run([gh_exe, "auth", "token"], capture_output=True, text=True, timeout=2.0)
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+    except Exception:
+        pass
+
+    return ""
 
 
 def get_client_installation_dir() -> str:
@@ -116,22 +146,22 @@ class CloudAssetDownloaderThread(QThread):
                 self.sig_finished.emit(False, f"Sync error: {e}")
                 return
 
-        # 3. Cloud CDN Download
+        # 3. Cloud CDN / GitHub Download
         if not self.cloud_url or not self.cloud_url.startswith("http"):
-            self.sig_finished.emit(False, "Cloud CDN URL not configured. Please supply a valid download URL.")
+            self.sig_finished.emit(False, "Cloud CDN / GitHub URL not configured. Please supply a valid download URL.")
             return
 
         try:
-            self.sig_progress.emit(5, "Resolving direct cloud stream...", "0.0 KB/s")
-            stream_url = self._resolve_direct_url(self.cloud_url)
+            self.sig_progress.emit(5, "Resolving cloud download stream...", "0.0 KB/s")
+            stream_url, req_headers = self._resolve_download_request(self.cloud_url)
             self.sig_progress.emit(8, "Connecting to Cloud Server...", "0.0 KB/s")
 
             req = urllib.request.Request(
                 stream_url,
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+                headers=req_headers
             )
             
-            with urllib.request.urlopen(req, timeout=15.0) as response:
+            with urllib.request.urlopen(req, timeout=20.0) as response:
                 total_size = int(response.info().get("Content-Length", 0))
                 downloaded = 0
                 chunk_size = 1024 * 64
@@ -185,6 +215,59 @@ class CloudAssetDownloaderThread(QThread):
             self.sig_finished.emit(False, f"Cloud Download Failed: HTTP {e.code} ({e.reason})")
         except Exception as e:
             self.sig_finished.emit(False, f"Download error: {e}")
+
+    def _resolve_download_request(self, raw_url: str):
+        """Resolve download stream URL and required auth headers for GitHub, Google Drive, or Dropbox."""
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        token = get_github_token()
+
+        # GitHub Releases or Contents API
+        if "github.com" in raw_url or "api.github.com" in raw_url:
+            import re
+            api_url = raw_url
+            if "releases/latest" in raw_url or "/releases/tags/" in raw_url or "/releases" in raw_url:
+                if "api.github.com" not in api_url:
+                    m = re.search(r"github\.com/([^/]+)/([^/]+)/releases", raw_url)
+                    if m:
+                        api_url = f"https://api.github.com/repos/{m.group(1)}/{m.group(2)}/releases/latest"
+
+                api_headers = dict(headers)
+                api_headers["Accept"] = "application/vnd.github+json"
+                if token:
+                    api_headers["Authorization"] = f"Bearer {token}"
+
+                try:
+                    req = urllib.request.Request(api_url, headers=api_headers)
+                    with urllib.request.urlopen(req, timeout=10.0) as resp:
+                        rel_data = json.loads(resp.read().decode("utf-8"))
+                        assets = rel_data.get("assets", [])
+                        target_asset = None
+                        for a in assets:
+                            if a.get("name", "").endswith(".zip"):
+                                target_asset = a
+                                break
+                        if not target_asset and assets:
+                            target_asset = assets[0]
+
+                        if target_asset:
+                            stream_url = target_asset.get("url")
+                            download_headers = dict(headers)
+                            download_headers["Accept"] = "application/octet-stream"
+                            if token:
+                                download_headers["Authorization"] = f"Bearer {token}"
+                            return stream_url, download_headers
+                except Exception as e:
+                    pass
+
+            if "/releases/assets/" in raw_url:
+                download_headers = dict(headers)
+                download_headers["Accept"] = "application/octet-stream"
+                if token:
+                    download_headers["Authorization"] = f"Bearer {token}"
+                return raw_url, download_headers
+
+        direct_url = self._resolve_direct_url(raw_url)
+        return direct_url, headers
 
     def _resolve_direct_url(self, raw_url: str) -> str:
         """Resolve Google Drive or Dropbox links to raw direct-stream binary download URLs."""

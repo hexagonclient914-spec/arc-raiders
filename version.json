@@ -4,8 +4,8 @@
     "build": 5003,
     "product_name": "AURA Tactical Vision Suite",
     "release_date": "2026-10-30",
-    "remote_manifest_url": "",
-    "payload_download_url": "https://drive.google.com/file/d/1wxJwt-vY3BGEppU5b2TfM-4Be0CdEVeE/view?usp=drive_link",
+    "remote_manifest_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/contents/version.json",
+    "payload_download_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/releases/latest",
     "changelog": [
         "Head-Chest target fusion: Eliminated dual-box flipping and reticle oscillation",
         "Critically damped snap landing: Exact 11% anatomical head-height offset",

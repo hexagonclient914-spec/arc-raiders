@@ -20,6 +20,7 @@ from cloud_downloader import (
     is_client_installed,
     get_client_installation_dir,
     get_active_payload_dir,
+    get_github_token,
     CloudAssetDownloaderThread
 )
 
@@ -123,7 +124,13 @@ class UpdateCheckerThread(QThread):
         if remote_url and remote_url.startswith("http"):
             try:
                 import requests
-                res = requests.get(remote_url, timeout=4.0)
+                headers = {"User-Agent": "AuraTacticalLoader/5.0"}
+                if "api.github.com" in remote_url or "github" in remote_url:
+                    headers["Accept"] = "application/vnd.github.raw+json"
+                    token = get_github_token()
+                    if token:
+                        headers["Authorization"] = f"Bearer {token}"
+                res = requests.get(remote_url, headers=headers, timeout=5.0)
                 if res.status_code == 200:
                     remote_data = res.json()
                     rem_ver = remote_data.get("version", self.current_version)
@@ -650,7 +657,7 @@ class CommercialLoaderWindow(QMainWindow):
         self.btn_launch.setText("DOWNLOADING ASSETS...")
         self.download_container.setVisible(True)
         if force:
-            self.lbl_status.setText("Cloud Sync: Downloading latest updates from Google Drive...")
+            self.lbl_status.setText("Cloud Sync: Downloading latest updates from GitHub Releases...")
         else:
             self.lbl_status.setText("First-time setup: Provisioning AI engines & assets...")
 
