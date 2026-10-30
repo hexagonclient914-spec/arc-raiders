@@ -1,18 +1,18 @@
 {
-    "version": "5.0.4",
+    "version": "5.0.5",
     "channel": "release",
-    "build": 5006,
+    "build": 5007,
     "product_name": "AURA Tactical Vision Suite",
-    "release_date": "2026-10-30",
+    "release_date": "2026-10-31",
     "remote_manifest_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/contents/version.json",
     "payload_download_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/releases/latest",
     "changelog": [
-        "Dual-PC Pipeline: Zero-latency DirectShow HDMI Capture Card receiver with 0% Gaming-PC load",
-        "Hardware Isolation Mode: Single-PC (Direct DWM) / Dual-PC (HDMI Capture) switch in Loader",
+        "Cyber-Red Elite Vector GUI: 100% native QPainter vector rendering & razor-sharp typography",
+        "Dedicated AI Engine Hub: Real-time neural model switcher (Valorant, Fortnite 100K, ARC, CS2, BF2042)",
+        "Custom Weights Browser: Dynamically load any .engine, .onnx, or .pt models",
+        "Inference Pipeline Tuning: Real-time Confidence, IoU NMS, Combat Zoom, and Scan Region controls",
+        "Dual-PC Pipeline: DirectShow zero-latency HDMI Capture Card receiver with 0% Gaming-PC load",
         "Head-Lock Anti-Flicker: Zero-jitter EMA coordinate filter & sub-pixel fractional accumulator",
-        "Cyber-Tactical Glassmorphic GUI: Full visual overhaul, neon status pills & telemetry HUD",
-        "Fortnite (FN) High-Speed AI Profile: 100K-trained model, 260+ FPS & anatomical Head-Lock",
-        "Universal Auto-Converter: TensorRT 10 and 11 multi-GPU compiler",
         "Code Protection Architecture: Encrypted binary execution containers for all Python modules"
     ]
 }
