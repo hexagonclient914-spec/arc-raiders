@@ -50,6 +50,7 @@ FILES_TO_PACK = [
     "overlay_window.py",
     "settings_window.py",
     "capture_card.py",
+    "aura_gui.py",
     
     # Configs & Tools
     "yolo_config.json",

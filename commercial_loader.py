@@ -856,9 +856,13 @@ class CommercialLoaderWindow(QMainWindow):
                     self.lbl_status.setText("Vision Engine terminated.")
 
     def _open_settings(self):
-        # Trigger F8 or start settings standalone
-        py_cmd = get_runtime_python()
-        subprocess.Popen([py_cmd, "-c", "import win32api, win32con; win32api.keybd_event(0x77, 0, 0, 0); win32api.keybd_event(0x77, 0, win32con.KEYEVENTF_KEYUP, 0)"])
+        try:
+            from aura_gui import AuraEliteHUDWindow
+            self.elite_gui = AuraEliteHUDWindow()
+            self.elite_gui.show()
+        except Exception:
+            py_cmd = get_runtime_python()
+            subprocess.Popen([py_cmd, "aura_gui.py"])
 
     def _run_wiggle_test(self):
         py_cmd = get_runtime_python()
