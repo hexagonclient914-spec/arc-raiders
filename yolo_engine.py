@@ -323,8 +323,10 @@ def build_trt_engine_from_onnx(onnx_file: str, engine_file: str, half=True) -> b
         print(f"[TensorRT Auto-Compiler] Building optimized engine for this GPU from '{os.path.basename(onnx_file)}'...")
         logger = trt.Logger(trt.Logger.WARNING)
         builder = trt.Builder(logger)
-        flag = 1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH)
-        network = builder.create_network(flag)
+        if hasattr(trt, "NetworkDefinitionCreationFlag") and hasattr(trt.NetworkDefinitionCreationFlag, "EXPLICIT_BATCH"):
+            network = builder.create_network(1 << int(trt.NetworkDefinitionCreationFlag.EXPLICIT_BATCH))
+        else:
+            network = builder.create_network()
         parser = trt.OnnxParser(network, logger)
 
         with open(onnx_file, "rb") as f:
@@ -969,7 +971,22 @@ class YOLOEngine:
         engine_candidate = stem + ".engine"
         fp16_candidate = stem + "_fp16.onnx"
         onnx_candidate = stem + ".onnx"
-        if TRT_PKG_AVAILABLE and os.path.exists(engine_candidate):
+        if TRT_PKG_AVAILABLE and TORCH_AVAILABLE and torch.cuda.is_available():
+            if os.path.exists(engine_candidate):
+                target_path = engine_candidate
+            elif os.path.exists(fp16_candidate) or os.path.exists(onnx_candidate):
+                onnx_src = fp16_candidate if os.path.exists(fp16_candidate) else onnx_candidate
+                print(f"[YOLOEngine] No precompiled TensorRT engine found. Compiling high-speed engine for this GPU from '{os.path.basename(onnx_src)}'...")
+                with self._lock:
+                    self._state["backend_name"] = "Compiling TensorRT Engine for your GPU (first start only)..."
+                ok = build_trt_engine_from_onnx(onnx_src, engine_candidate)
+                if ok and os.path.exists(engine_candidate):
+                    target_path = engine_candidate
+                elif os.path.exists(fp16_candidate):
+                    target_path = fp16_candidate
+                elif os.path.exists(onnx_candidate):
+                    target_path = onnx_candidate
+        elif os.path.exists(engine_candidate) and TRT_PKG_AVAILABLE:
             target_path = engine_candidate
         elif os.path.exists(fp16_candidate):
             target_path = fp16_candidate

@@ -1,16 +1,16 @@
 {
-    "version": "5.0.1",
+    "version": "5.0.2",
     "channel": "release",
-    "build": 5003,
+    "build": 5004,
     "product_name": "AURA Tactical Vision Suite",
     "release_date": "2026-10-30",
     "remote_manifest_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/contents/version.json",
     "payload_download_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/releases/latest",
     "changelog": [
-        "Head-Chest target fusion: Eliminated dual-box flipping and reticle oscillation",
-        "Critically damped snap landing: Exact 11% anatomical head-height offset",
-        "Direct TensorRT 10 Async Execution: Up to 300+ FPS on RTX 4060",
-        "Zero-Copy Win32 RingBuffer: 0.05ms frame capture overhead",
-        "Integrated Commercial Suite Loader with hardware diagnostics & auto-updates"
+        "RTX 4070 Auto-Optimization: Automatic TensorRT 10 compilation on first start (160-250+ FPS)",
+        "Fixed TensorRT 10 explicit batch compatibility",
+        "Zero manual setup required for friends & customer GPUs",
+        "Direct TensorRT 10 Async Execution + RingBuffer",
+        "MAKCU Dual-ESP32 auto-detection"
     ]
 }
