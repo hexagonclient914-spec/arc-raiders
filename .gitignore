@@ -1,0 +1,45 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large Installers & Archives (> 100MB)
+*.zip
+SteelSeriesGG_Setup.exe
+
+# Build and binary directories
+build/
+dist/
+csharp_bin/
+YoloTacticalVisionCS/bin/
+YoloTacticalVisionCS/obj/
+.vs/
+
+# Compiled executables & libraries
+*.exe
+*.dll
+*.so
+*.dylib
+*.engine
+
+# Logs & crash reports
+*.log
+crash_dispatcher.log
+
+# Sensitive authentication & keys
+loader_auth.json
+*.key
+
+# YOLO runs / training checkpoints & datasets
+runs/
+Arc-Raiders-13/
+
+# Model weights & AI engines (provisioned via cloud_downloader)
+*.pt
+*.onnx
+*.engine
+
+# Environment / local settings
+.env
+venv/
+.venv/
