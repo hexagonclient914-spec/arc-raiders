@@ -42,21 +42,27 @@ FILES_TO_PACK = [
     "Find_COM_Ports.bat",
     "export_tensorrt.py",
     "Boost_To_160_FPS.bat",
+    "auto_converter.py",
+    "Auto_Convert_Models.bat",
     
     # Engine Models (Fast TensorRT 10 for RTX 40-series)
     "valorant_30k_640.engine",
+    "fortnite_100k.engine",
     "GGMCS2.engine",
     "arc_raiders_yolo11_better.engine",
     "battlefield_2042.engine",
 
     # Native PyTorch CUDA Models (Bulletproof 300+ FPS on all NVIDIA GPUs)
     "valorant_30k_640.pt",
+    "fortnite_100k.pt",
     "GGMCS2.pt",
     "battlefield_2042.pt",
 
     # Universal ONNX Models (Compatible with ALL GPUs: RTX 20/30/40, GTX 1660, etc.)
     "valorant_30k_640_fp16.onnx",
     "valorant_30k_640.onnx",
+    "fortnite_100k_fp16.onnx",
+    "fortnite_100k.onnx",
     "GGMCS2_fp16.onnx",
     "arc_raiders_yolo11_better_fp16.onnx",
     "battlefield_2042_fp16.onnx"

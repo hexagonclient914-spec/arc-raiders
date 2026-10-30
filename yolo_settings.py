@@ -2308,6 +2308,18 @@ class YOLOSettingsWindow(QWidget):
                 "closest_color": "#00FFCC",
                 "box_style": "corners",
             },
+            "fortnite": {
+                "name": "Fortnite (100K)",
+                "onnx_model": "fortnite_100k.onnx",
+                "engine_model": "fortnite_100k.engine",
+                "pt_model": "fortnite_100k.pt",
+                "scan_region": "center_640",
+                "region_idx": 1,
+                "confidence": 0.45,
+                "enemy_color": "#FF2A55",
+                "closest_color": "#FFE600",
+                "box_style": "glow",
+            },
             "arc_raiders": {
                 "name": "ARC Raiders",
                 "onnx_model": "arc_raiders_yolo11_better.onnx",

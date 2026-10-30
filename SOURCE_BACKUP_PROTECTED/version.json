@@ -1,0 +1,16 @@
+{
+    "version": "5.0.2",
+    "channel": "release",
+    "build": 5004,
+    "product_name": "AURA Tactical Vision Suite",
+    "release_date": "2026-10-30",
+    "remote_manifest_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/contents/version.json",
+    "payload_download_url": "https://api.github.com/repos/hexagonclient914-spec/arc-raiders/releases/latest",
+    "changelog": [
+        "RTX 4070 Auto-Optimization: Automatic TensorRT 10 compilation on first start (160-250+ FPS)",
+        "Fixed TensorRT 10 explicit batch compatibility",
+        "Zero manual setup required for friends & customer GPUs",
+        "Direct TensorRT 10 Async Execution + RingBuffer",
+        "MAKCU Dual-ESP32 auto-detection"
+    ]
+}

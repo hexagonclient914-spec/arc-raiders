@@ -1,0 +1,19 @@
+{
+    "overlay_mode": "radar",
+    "gain": 2.8,
+    "noise_threshold": 0.002,
+    "hold_duration": 0.9,
+    "stereo_boost": 1.5,
+    "overlay_size": 210,
+    "overlay_opacity": 0.9,
+    "y_offset": 0,
+    "show_crosshair": true,
+    "crosshair_size": 4,
+    "crosshair_color": "#00FFCC",
+    "footstep_color": "#FF8800",
+    "gunshot_color": "#00E5FF",
+    "general_color": "#EEEEEE",
+    "hotkey_toggle": "f9",
+    "hotkey_settings": "f10",
+    "device_index": null
+}

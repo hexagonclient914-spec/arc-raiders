@@ -405,6 +405,7 @@ class CommercialLoaderWindow(QMainWindow):
         self.game_cards = {}
         games_data = [
             ("valorant", "Valorant", "valorant_30k_640.engine", "Direct TRT 10", "⚡ 280+ FPS", "head"),
+            ("fortnite", "Fortnite", "fortnite_100k.engine", "Direct TRT 10", "⚡ 260+ FPS", "head"),
             ("arc_raiders", "ARC Raiders", "arc_raiders_yolo11_better.engine", "YOLOv11 TRT", "🎯 Snitch/Raider", "head"),
             ("battlefield_2042", "Battlefield 2042", "battlefield_2042.engine", "FP16 TRT 10", "💥 200+ FPS", "head"),
             ("cs2", "Counter-Strike 2", "GGMCS2.engine", "Direct TRT 10", "🏆 Head/Neck", "head"),

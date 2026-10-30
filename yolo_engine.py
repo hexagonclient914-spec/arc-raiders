@@ -971,6 +971,19 @@ class YOLOEngine:
         engine_candidate = stem + ".engine"
         fp16_candidate = stem + "_fp16.onnx"
         onnx_candidate = stem + ".onnx"
+        pt_candidate = stem + ".pt"
+
+        # Auto-Converter: If only .pt is available, automatically export to ONNX & FP16 ONNX
+        if not os.path.exists(fp16_candidate) and not os.path.exists(onnx_candidate) and os.path.exists(pt_candidate):
+            try:
+                print(f"[Auto-Converter] Auto-exporting PyTorch '{os.path.basename(pt_candidate)}' to high-speed ONNX...")
+                from ultralytics import YOLO
+                y_m = YOLO(pt_candidate)
+                y_m.export(format="onnx", half=False, imgsz=640, dynamic=False, opset=12)
+                if os.path.exists(onnx_candidate):
+                    convert_onnx_to_fp16(onnx_candidate)
+            except Exception as e_pt:
+                print(f"[Auto-Converter] Notice during PyTorch export: {e_pt}")
         if TRT_PKG_AVAILABLE and TORCH_AVAILABLE and torch.cuda.is_available():
             if os.path.exists(engine_candidate):
                 target_path = engine_candidate
