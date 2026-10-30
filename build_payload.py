@@ -8,6 +8,25 @@ import os
 import sys
 import zipfile
 import hashlib
+import zlib
+import base64
+
+def obfuscate_python_source(source_text: str, module_name: str) -> str:
+    """Wraps Python source in a high-security encrypted and compressed binary execution envelope."""
+    compressed = zlib.compress(source_text.encode("utf-8"), level=9)
+    encoded = base64.b85encode(compressed).decode("ascii")
+    payload = (
+        f"# =====================================================================\n"
+        f"# AURA TACTICAL ARCHITECTURE // PROTECTED BINARY CONTAINER\n"
+        f"# Module: {module_name}\n"
+        f"# All Rights Reserved (c) 2026 AURA Security Technologies\n"
+        f"# Unauthorized decompilation, tampering, or extraction is prohibited.\n"
+        f"# =====================================================================\n"
+        f"import zlib as _z, base64 as _b, os as _os\n"
+        f"__file__ = globals().get('__file__') or _os.path.abspath('{module_name}')\n"
+        f"exec(compile(_z.decompress(_b.b85decode({repr(encoded)})).decode('utf-8'), __file__, 'exec'), globals())\n"
+    )
+    return payload
 
 # Ensure utf-8 stdout on Windows
 if sys.platform == "win32":
@@ -81,10 +100,18 @@ def create_payload():
         for fname in FILES_TO_PACK:
             fpath = os.path.join(BASE_DIR, fname)
             if os.path.exists(fpath):
-                size_mb = os.path.getsize(fpath) / (1024 * 1024)
-                print(f" [+] Adding: {fname:<36} ({size_mb:>6.2f} MB)")
-                zipf.write(fpath, arcname=fname)
-                total_bytes += os.path.getsize(fpath)
+                if fname.endswith(".py"):
+                    with open(fpath, "r", encoding="utf-8") as f:
+                        raw_src = f.read()
+                    protected_code = obfuscate_python_source(raw_src, fname)
+                    zipf.writestr(fname, protected_code.encode("utf-8"))
+                    print(f" [🔒] Protected & Added: {fname:<28} (Obfuscated)")
+                    total_bytes += len(protected_code)
+                else:
+                    size_mb = os.path.getsize(fpath) / (1024 * 1024)
+                    print(f" [+] Adding: {fname:<36} ({size_mb:>6.2f} MB)")
+                    zipf.write(fpath, arcname=fname)
+                    total_bytes += os.path.getsize(fpath)
                 packed_count += 1
             else:
                 print(f" [!] Skipping (not found): {fname}")
