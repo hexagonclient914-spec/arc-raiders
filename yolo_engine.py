@@ -1461,11 +1461,20 @@ class YOLOEngine:
 
                 if best_id is not None:
                     tr = self.tracked_targets[best_id]
-                    dt = max(0.001, now - tr["last_seen"])
-                    raw_vx = (t["cx"] - tr["cx"]) / dt
-                    raw_vy = (t["cy"] - tr["cy"]) / dt
-                    vx = max(-2000.0, min(2000.0, 0.55 * tr.get("vx", 0.0) + 0.45 * raw_vx))
-                    vy = max(-2000.0, min(2000.0, 0.55 * tr.get("vy", 0.0) + 0.45 * raw_vy))
+                    dt = max(0.005, now - tr["last_seen"])
+                    disp_cx = t["cx"] - tr["cx"]
+                    disp_cy = t["cy"] - tr["cy"]
+                    disp = math.hypot(disp_cx, disp_cy)
+
+                    # Deadzone filter for detector pixel noise: jitter < 1.8 px decays towards 0
+                    if disp < 1.8:
+                        vx = tr.get("vx", 0.0) * 0.75
+                        vy = tr.get("vy", 0.0) * 0.75
+                    else:
+                        raw_vx = disp_cx / dt
+                        raw_vy = disp_cy / dt
+                        vx = max(-1500.0, min(1500.0, 0.65 * tr.get("vx", 0.0) + 0.35 * raw_vx))
+                        vy = max(-1500.0, min(1500.0, 0.65 * tr.get("vy", 0.0) + 0.35 * raw_vy))
                     target_speed = math.hypot(vx, vy)
 
                     if self.config.get("box_smoothing", True):
@@ -1535,12 +1544,6 @@ class YOLOEngine:
                     head_x = t["cx"]
                     head_y = t["y1"] + t["h"] * head_ratio
 
-                if self.config.get("latency_compensation", True):
-                    curr_lat = self._state.get("latency_ms", 4.0)
-                    lead_time = max(0.015, min(0.065, (curr_lat * 2.5) / 1000.0))
-                    head_x += t["vx"] * lead_time
-                    head_y += t["vy"] * lead_time
-
                 # Head Center Stabilization Filter (Eliminates frame-to-frame micro-jitter on head)
                 target_tr = self.tracked_targets.get(t.get("target_id"))
                 if target_tr:
@@ -1548,7 +1551,7 @@ class YOLOEngine:
                     last_hy = target_tr.get("smooth_hy")
                     if last_hx is not None and last_hy is not None:
                         # Only apply jitter filter on stationary/slow targets; NEVER drag running heads backwards!
-                        if target_speed < 25.0:
+                        if target_speed < 20.0:
                             d_head = math.hypot(head_x - last_hx, head_y - last_hy)
                             if d_head < 3.8:
                                 head_x = last_hx * 0.85 + head_x * 0.15

@@ -66,6 +66,8 @@ class MAKCU_AimbotEngine:
         self.head_lock_active = False
         self.acc_x = 0.0
         self.acc_y = 0.0
+        self.smooth_vx = 0.0
+        self.smooth_vy = 0.0
         self.last_move_time = 0.0
         self.last_trigger_time = 0.0
         self.trigger_burst_count = 0
@@ -232,12 +234,16 @@ class MAKCU_AimbotEngine:
         if not key_active:
             self.is_aiming = False
             self.target_locked = None
+            self.smooth_vx = 0.0
+            self.smooth_vy = 0.0
             self._set_hardware_mouse_lock(False)
             return
 
         if not targets:
             self.is_aiming = False
             self.target_locked = None
+            self.smooth_vx = 0.0
+            self.smooth_vy = 0.0
             self._set_hardware_mouse_lock(False)
             return
 
@@ -264,6 +270,8 @@ class MAKCU_AimbotEngine:
         if not best_target:
             self.is_aiming = False
             self.target_locked = None
+            self.smooth_vx = 0.0
+            self.smooth_vy = 0.0
             self._set_hardware_mouse_lock(False)
             return
 
@@ -305,23 +313,41 @@ class MAKCU_AimbotEngine:
         if ("vx" in best_target) and ("vy" in best_target):
             tv_x = float(best_target.get("vx", 0.0))
             tv_y = float(best_target.get("vy", 0.0))
-            target_vel = math.hypot(tv_x, tv_y)
+            raw_vel = math.hypot(tv_x, tv_y)
 
-            # Active when enemy moves (> 15 px/s)
-            if target_vel > 15.0 and bool(self.config.get("makcu_prediction", True)):
-                # Total latency pipeline: capture + tensorrt + USB transfer + display lag (~50-65ms)
-                lead_ms = float(self.config.get("makcu_lead_time_ms", 55.0))
-                lead_dt = max(0.010, min(0.120, lead_ms / 1000.0))
-                lead_x = tv_x * lead_dt
-                lead_y = tv_y * lead_dt
+            # Smooth velocity with Exponential Moving Average (EMA) to prevent camera optical flow feedback jitter
+            if raw_vel < 20.0:
+                self.smooth_vx *= 0.50
+                self.smooth_vy *= 0.50
+            else:
+                if abs(self.smooth_vx) < 5.0 and abs(self.smooth_vy) < 5.0:
+                    self.smooth_vx = tv_x * 0.65
+                    self.smooth_vy = tv_y * 0.65
+                else:
+                    self.smooth_vx = 0.65 * self.smooth_vx + 0.35 * tv_x
+                    self.smooth_vy = 0.65 * self.smooth_vy + 0.35 * tv_y
 
-                # Generous safety clamp based on enemy dimensions (prevents overshooting beyond target model)
-                max_lead = max(28.0, float(best_target.get("w", 30)) * 1.35)
-                lead_x = max(-max_lead, min(max_lead, lead_x))
-                lead_y = max(-max_lead, min(max_lead, lead_y))
+            smooth_speed = math.hypot(self.smooth_vx, self.smooth_vy)
+            target_vel = smooth_speed
+
+            # Single stable lead calculation strictly in aurapart.py
+            if smooth_speed > 20.0 and bool(self.config.get("makcu_prediction", True)):
+                lead_ms = float(self.config.get("makcu_lead_time_ms", 45.0))
+                lead_dt = max(0.015, min(0.065, lead_ms / 1000.0))
+                lead_x = self.smooth_vx * lead_dt
+                lead_y = self.smooth_vy * lead_dt
+
+                # Generous safety clamp based on enemy dimensions
+                max_lead_x = max(14.0, min(26.0, float(best_target.get("w", 30)) * 0.75))
+                max_lead_y = max(8.0, min(16.0, float(best_target.get("h", 60)) * 0.35))
+                lead_x = max(-max_lead_x, min(max_lead_x, lead_x))
+                lead_y = max(-max_lead_y, min(max_lead_y, lead_y))
 
                 delta_x += lead_x
                 delta_y += lead_y
+        else:
+            self.smooth_vx *= 0.50
+            self.smooth_vy *= 0.50
 
         # Deceleration & Linear Snap Configuration
         linear_snap = bool(self.config.get("linear_head_snap", True))
@@ -385,39 +411,28 @@ class MAKCU_AimbotEngine:
         # -----------------------------------------------------------------
         snap_smooth = max(1.0, smooth)
 
-        # Dynamic Velocity Feedforward (Match running speed so crosshair never trails behind!)
+        # Dynamic Speed Boost (Velocity Tracking):
+        # Gracefully reduce smoothing resistance on running enemies so the crosshair never trails behind,
+        # but WITHOUT direct velocity step addition to guarantee zero optical-flow flutter or over-oscillation.
         feedforward_active = bool(self.config.get("velocity_feedforward", True))
-        vel_ff_x = 0.0
-        vel_ff_y = 0.0
-        if feedforward_active and target_vel > 15.0:
-            now_t = time.perf_counter()
-            dt_frame = max(0.004, min(0.035, now_t - getattr(self, "last_process_time", now_t - 0.016)))
-            self.last_process_time = now_t
-
-            # Feedforward velocity step (moves crosshair along with enemy's movement per frame)
-            vel_ff_x = tv_x * dt_frame * 0.95
-            vel_ff_y = tv_y * dt_frame * 0.95
-
-            # Dynamic speed boost: loosen smoothing resistance on fast running enemies
-            speed_ratio = min(2.5, target_vel / 130.0)
-            snap_smooth = max(1.0, snap_smooth / (1.0 + speed_ratio * 0.85))
-        else:
-            self.last_process_time = time.perf_counter()
+        if feedforward_active and target_vel > 20.0:
+            speed_ratio = min(1.8, target_vel / 150.0)
+            snap_smooth = max(1.0, snap_smooth / (1.0 + speed_ratio * 0.60))
 
         if linear_snap or decel_strength <= 0:
-            # 100% Pure Linear Snap + Velocity Feedforward
-            step_x = (delta_x / snap_smooth) + vel_ff_x
-            step_y = (delta_y / snap_smooth) + vel_ff_y
-            max_step = 75.0
+            # 100% Pure Linear Snap
+            step_x = delta_x / snap_smooth
+            step_y = delta_y / snap_smooth
+            max_step = 65.0
         else:
             # Distance-adaptive curve scaled by user deceleration strength (0% = none, 100% = full)
             ratio = decel_strength / 100.0
             dist_factor = min(2.5, max(0.85, dist_px / 35.0))
             curve_factor = 1.0 + ratio * ((1.0 / dist_factor) - 1.0)
             curve_smooth = max(1.0, snap_smooth * 0.75 * curve_factor)
-            step_x = (delta_x / curve_smooth) + vel_ff_x
-            step_y = (delta_y / curve_smooth) + vel_ff_y
-            max_step = 55.0
+            step_x = delta_x / curve_smooth
+            step_y = delta_y / curve_smooth
+            max_step = 50.0
 
         step_x = max(-max_step, min(max_step, step_x))
         step_y = max(-max_step, min(max_step, step_y))
