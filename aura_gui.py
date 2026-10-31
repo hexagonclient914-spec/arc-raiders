@@ -16,11 +16,15 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QGraphicsDropShadowEffect, QFileDialog, QMessageBox,
     QGridLayout
 )
-from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal
+from PyQt6.QtCore import Qt, QPoint, QPointF, QRectF, pyqtSignal, QTimer
 from PyQt6.QtGui import (
     QColor, QFont, QCursor, QIcon, QPainter, QBrush, QPen,
-    QLinearGradient, QPainterPath
+    QLinearGradient, QPainterPath, QGuiApplication
 )
+
+from yolo_config import YOLOConfig
+from yolo_engine import YOLOEngine
+from yolo_overlay import YOLOOverlayWindow
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE_DIR, "yolo_config.json")
@@ -218,13 +222,40 @@ class CyberCard(QFrame):
 # MAIN AURA TACTICAL GUI WINDOW
 # =====================================================================
 class AuraEliteHUDWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, engine=None, config=None, overlay_window=None):
         super().__init__()
         self.drag_position = QPoint()
-        self.config_data = self._load_config()
+        self.config = config if config is not None else YOLOConfig()
+        self.config_data = self.config.data
+        self.engine = engine
+        self.overlay_window = overlay_window
+        self._is_recording_keybind = False
+        self.rebind_hotkeys_callback = None
+        self.status_bar_lbl = None
+
+        # Auto-initialize and start live YOLO vision engine if not provided
+        if self.engine is None:
+            try:
+                self.engine = YOLOEngine(self.config)
+                self.engine.start()
+            except Exception as e:
+                print(f"[AURA GUI] Warning: Could not start YOLOEngine: {e}")
+
+        # Auto-initialize and display overlay window if not provided
+        if self.overlay_window is None and self.engine is not None:
+            try:
+                screen = QGuiApplication.primaryScreen()
+                if screen:
+                    self.overlay_window = YOLOOverlayWindow(self.engine, self.config)
+                    self.overlay_window.setGeometry(screen.geometry())
+                    if not bool(self.config.get("headless_mode", False)):
+                        self.overlay_window.show()
+                        self.overlay_window.raise_()
+            except Exception as e:
+                print(f"[AURA GUI] Warning: Could not start YOLOOverlayWindow: {e}")
 
         self.setWindowTitle("AURA // Smarter. Smoother. Deadlier.")
-        self.resize(1024, 576)
+        self.resize(1060, 680)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -232,19 +263,18 @@ class AuraEliteHUDWindow(QMainWindow):
         self._apply_styling()
         self._sync_ui_from_config()
 
+        # Real-time Telemetry Timer (updates live FPS, latency, and aim lock status)
+        self.telemetry_timer = QTimer(self)
+        self.telemetry_timer.setInterval(400)
+        self.telemetry_timer.timeout.connect(self._on_telemetry_tick)
+        self.telemetry_timer.start()
+
     def _load_config(self) -> dict:
-        if os.path.exists(CONFIG_PATH):
-            try:
-                with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {}
+        return self.config.data
 
     def _save_config(self):
         try:
-            with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-                json.dump(self.config_data, f, indent=4)
+            self.config.save()
         except Exception as e:
             print(f"[AURA GUI] Error saving config: {e}")
 
@@ -329,21 +359,24 @@ class AuraEliteHUDWindow(QMainWindow):
         status_box = QHBoxLayout()
         status_box.setSpacing(12)
 
-        lbl_dot = QLabel("●")
-        lbl_dot.setObjectName("StatusDot")
-        lbl_status = QLabel("Status: Ready")
-        lbl_status.setObjectName("StatusText")
+        self.lbl_dot = QLabel("●")
+        self.lbl_dot.setObjectName("StatusDot")
+        is_eng_active = bool(self.config.get("enabled", True))
+        self.lbl_dot.setStyleSheet("color: #00FF66; font-size: 14px;" if is_eng_active else "color: #FFB300; font-size: 14px;")
 
-        lbl_sep = QLabel("|")
-        lbl_sep.setObjectName("StatusSep")
+        self.lbl_status = QLabel("Status: Active" if is_eng_active else "Status: Standby")
+        self.lbl_status.setObjectName("StatusText")
 
-        lbl_ai = QLabel("AI Engine: Online")
-        lbl_ai.setObjectName("AiEngineText")
+        self.lbl_sep = QLabel("|")
+        self.lbl_sep.setObjectName("StatusSep")
 
-        status_box.addWidget(lbl_dot)
-        status_box.addWidget(lbl_status)
-        status_box.addWidget(lbl_sep)
-        status_box.addWidget(lbl_ai)
+        self.lbl_ai = QLabel("AI Engine: Online" if is_eng_active else "AI Engine: Paused")
+        self.lbl_ai.setObjectName("AiEngineText")
+
+        status_box.addWidget(self.lbl_dot)
+        status_box.addWidget(self.lbl_status)
+        status_box.addWidget(self.lbl_sep)
+        status_box.addWidget(self.lbl_ai)
         h_lay.addLayout(status_box)
 
         # Minimize & Close buttons
@@ -356,10 +389,14 @@ class AuraEliteHUDWindow(QMainWindow):
         btn_close = QPushButton("✕")
         btn_close.setObjectName("WinBtnClose")
         btn_close.setFixedSize(28, 28)
-        btn_close.clicked.connect(self.close)
+        btn_close.clicked.connect(self._handle_close_btn)
         h_lay.addWidget(btn_close)
 
         return header
+
+    def _handle_close_btn(self):
+        # Hide window so background vision engine and hotkeys keep working
+        self.hide()
 
     # -----------------------------------------------------------------
     # LEFT VERTICAL SIDEBAR (Clean vector HUD)
@@ -407,16 +444,16 @@ class AuraEliteHUDWindow(QMainWindow):
         lbl_hud_title.setObjectName("HudHeader")
         hud_lay.addWidget(lbl_hud_title)
 
-        lbl_gpu_val = QLabel("🎮 RTX 4070")
-        lbl_gpu_val.setObjectName("HudItem")
-        lbl_prec_val = QLabel("⚡ TRT 10 (FP16)")
-        lbl_prec_val.setObjectName("HudItem")
-        lbl_fps_val = QLabel("🚀 280+ FPS")
-        lbl_fps_val.setObjectName("HudItemHighlight")
+        self.lbl_gpu_val = QLabel("🎮 RTX 4070")
+        self.lbl_gpu_val.setObjectName("HudItem")
+        self.lbl_prec_val = QLabel("⚡ TRT 10 (FP16)")
+        self.lbl_prec_val.setObjectName("HudItem")
+        self.lbl_fps_val = QLabel("🚀 280+ FPS")
+        self.lbl_fps_val.setObjectName("HudItemHighlight")
 
-        hud_lay.addWidget(lbl_gpu_val)
-        hud_lay.addWidget(lbl_prec_val)
-        hud_lay.addWidget(lbl_fps_val)
+        hud_lay.addWidget(self.lbl_gpu_val)
+        hud_lay.addWidget(self.lbl_prec_val)
+        hud_lay.addWidget(self.lbl_fps_val)
 
         s_lay.addWidget(hud_box)
         return sidebar
@@ -479,7 +516,7 @@ class AuraEliteHUDWindow(QMainWindow):
         self.slider_fov.setObjectName("CyberSlider")
         self.slider_fov.setRange(10, 180)
         self.slider_fov.setValue(120)
-        self.slider_fov.valueChanged.connect(lambda v: self.lbl_fov_val.setText(f"{v}°"))
+        self.slider_fov.valueChanged.connect(self._on_fov_slider_changed)
         c1_lay.addWidget(self.slider_fov)
 
         # Smoothness Slider
@@ -503,7 +540,7 @@ class AuraEliteHUDWindow(QMainWindow):
         self.slider_smooth.setObjectName("CyberSlider")
         self.slider_smooth.setRange(10, 100)  # 1.0 to 10.0
         self.slider_smooth.setValue(30)
-        self.slider_smooth.valueChanged.connect(lambda v: self.lbl_smooth_val.setText(f"{v/10.0:.1f}"))
+        self.slider_smooth.valueChanged.connect(self._on_smooth_slider_changed)
         c1_lay.addWidget(self.slider_smooth)
 
         # Aim Key Dropdown
@@ -523,6 +560,7 @@ class AuraEliteHUDWindow(QMainWindow):
         self.combo_aim_key.setObjectName("CyberCombo")
         self.combo_aim_key.addItems(["Right Mouse", "Left ALT", "Mouse 4", "Mouse 5", "Always Active"])
         self.combo_aim_key.setFixedWidth(130)
+        self.combo_aim_key.currentIndexChanged.connect(self._on_aim_key_changed)
         key_lay.addWidget(self.combo_aim_key)
         c1_lay.addLayout(key_lay)
 
@@ -543,6 +581,7 @@ class AuraEliteHUDWindow(QMainWindow):
         self.combo_target.setObjectName("CyberCombo")
         self.combo_target.addItems(["💀 Head", "🎯 Neck", "🛡️ Chest"])
         self.combo_target.setFixedWidth(130)
+        self.combo_target.currentIndexChanged.connect(self._on_target_bone_changed)
         target_lay.addWidget(self.combo_target)
         c1_lay.addLayout(target_lay)
 
@@ -560,8 +599,40 @@ class AuraEliteHUDWindow(QMainWindow):
         c2_lay = c2.card_layout
 
         self.chk_pred = self._create_checkbox_row(c2_lay, "AI Prediction", "Predict enemy movement", checked=True)
+        self.chk_pred.stateChanged.connect(lambda s: self._on_config_toggle("makcu_prediction", bool(s)))
         self.chk_smart = self._create_checkbox_row(c2_lay, "Smart Aim", "Aim more naturally", checked=True)
+        self.chk_smart.stateChanged.connect(lambda s: self._on_config_toggle("makcu_lock_on_target", bool(s)))
         self.chk_anti_snap = self._create_checkbox_row(c2_lay, "Anti Snap", "Avoid robotic movement", checked=True)
+        self.chk_anti_snap.stateChanged.connect(lambda s: self._on_config_toggle("makcu_anti_snap", bool(s)))
+
+        # Linear Head Snap (No Decel)
+        self.chk_linear_snap = self._create_checkbox_row(c2_lay, "Linear Head Snap", "Direct pull · zero slowdown before head", checked=True)
+        self.chk_linear_snap.stateChanged.connect(self._on_linear_snap_toggle)
+
+        # Head Deceleration / Braking Slider
+        c2_lay.addSpacing(2)
+        decel_head = QHBoxLayout()
+        v_dec = QVBoxLayout()
+        lbl_dec = QLabel("Head Braking")
+        lbl_dec.setObjectName("ControlTitle")
+        lbl_dec_sub = QLabel("Slowdown near head (0% = Off)", self)
+        lbl_dec_sub.setObjectName("ControlSub")
+        v_dec.addWidget(lbl_dec)
+        v_dec.addWidget(lbl_dec_sub)
+        decel_head.addLayout(v_dec)
+        decel_head.addStretch()
+        self.lbl_decel_val = QLabel("0%")
+        self.lbl_decel_val.setObjectName("ValueBadge")
+        decel_head.addWidget(self.lbl_decel_val)
+        c2_lay.addLayout(decel_head)
+
+        self.slider_head_decel = QSlider(Qt.Orientation.Horizontal)
+        self.slider_head_decel.setObjectName("CyberSlider")
+        self.slider_head_decel.setRange(0, 100)
+        self.slider_head_decel.setValue(0)
+        self.slider_head_decel.valueChanged.connect(self._on_head_decel_changed)
+        c2_lay.addWidget(self.slider_head_decel)
+
         c2_lay.addStretch()
         col2.addWidget(c2, stretch=1)
 
@@ -570,9 +641,55 @@ class AuraEliteHUDWindow(QMainWindow):
         c3_lay = c3.card_layout
 
         self.sw_recoil = self._create_switch_row(c3_lay, "No Recoil", checked=True)
+        self.sw_recoil.toggled.connect(lambda s: self._on_config_toggle("makcu_recoil_compensation", bool(s)))
         self.sw_spread = self._create_switch_row(c3_lay, "No Spread", checked=True)
+        self.sw_spread.toggled.connect(lambda s: self._on_config_toggle("no_spread_enabled", bool(s)))
         self.sw_auto_fire = self._create_switch_row(c3_lay, "Auto Fire", checked=False)
+        self.sw_auto_fire.toggled.connect(lambda s: self._on_config_toggle("makcu_auto_shoot", bool(s)))
         self.sw_trigger = self._create_switch_row(c3_lay, "Trigger Bot", checked=False)
+        self.sw_trigger.toggled.connect(lambda s: self._on_config_toggle("makcu_triggerbot", bool(s)))
+
+        # Lock Before Fire Toggle (Nur triggern wenn Fadenkreuz fest auf Ziel gelockt ist)
+        self.sw_lock_trigger = self._create_switch_row(c3_lay, "🎯 Lock Before Fire", checked=True)
+        self.sw_lock_trigger.toggled.connect(lambda s: self._on_config_toggle("makcu_trigger_on_lock_only", bool(s)))
+
+        # Fire Tolerance Slider (2 - 15 px)
+        c3_lay.addSpacing(3)
+        tol_hdr = QHBoxLayout()
+        lbl_tol = QLabel("Fire Tolerance:")
+        lbl_tol.setObjectName("FieldLabel")
+        self.lbl_tol_val = QLabel("5 px")
+        self.lbl_tol_val.setObjectName("FieldValue")
+        tol_hdr.addWidget(lbl_tol)
+        tol_hdr.addStretch()
+        tol_hdr.addWidget(self.lbl_tol_val)
+        c3_lay.addLayout(tol_hdr)
+
+        self.slider_tol = QSlider(Qt.Orientation.Horizontal)
+        self.slider_tol.setObjectName("CyberSlider")
+        self.slider_tol.setRange(2, 15)
+        self.slider_tol.setValue(5)
+        self.slider_tol.valueChanged.connect(self._on_trigger_tol_changed)
+        c3_lay.addWidget(self.slider_tol)
+
+        # Pre-Fire Lock Delay Slider (0 - 100 ms)
+        c3_lay.addSpacing(3)
+        del_hdr = QHBoxLayout()
+        lbl_del = QLabel("Lock Settling Delay:")
+        lbl_del.setObjectName("FieldLabel")
+        self.lbl_lock_del_val = QLabel("25 ms")
+        self.lbl_lock_del_val.setObjectName("FieldValue")
+        del_hdr.addWidget(lbl_del)
+        del_hdr.addStretch()
+        del_hdr.addWidget(self.lbl_lock_del_val)
+        c3_lay.addLayout(del_hdr)
+
+        self.slider_lock_del = QSlider(Qt.Orientation.Horizontal)
+        self.slider_lock_del.setObjectName("CyberSlider")
+        self.slider_lock_del.setRange(0, 100)
+        self.slider_lock_del.setValue(25)
+        self.slider_lock_del.valueChanged.connect(self._on_trigger_lock_del_changed)
+        c3_lay.addWidget(self.slider_lock_del)
         c3_lay.addStretch()
         col2.addWidget(c3, stretch=1)
 
@@ -589,11 +706,19 @@ class AuraEliteHUDWindow(QMainWindow):
         c4_lay = c4.card_layout
 
         self.sw_esp_box = self._create_switch_row(c4_lay, "ESP Box", checked=True)
+        self.sw_esp_box.toggled.connect(lambda s: self._on_config_toggle("show_boxes", bool(s)))
         self.sw_esp_skel = self._create_switch_row(c4_lay, "ESP Skeleton", checked=True)
+        self.sw_esp_skel.toggled.connect(lambda s: self._on_config_toggle("show_skeleton", bool(s)))
         self.sw_esp_hp = self._create_switch_row(c4_lay, "ESP Health", checked=True)
+        self.sw_esp_hp.toggled.connect(lambda s: self._on_config_toggle("show_health", bool(s)))
         self.sw_esp_name = self._create_switch_row(c4_lay, "ESP Name", checked=False)
+        self.sw_esp_name.toggled.connect(lambda s: self._on_config_toggle("show_labels", bool(s)))
         self.sw_esp_dist = self._create_switch_row(c4_lay, "ESP Distance", checked=True)
+        self.sw_esp_dist.toggled.connect(lambda s: self._on_config_toggle("show_distance", bool(s)))
         self.sw_snapline = self._create_switch_row(c4_lay, "Snapline", checked=True)
+        self.sw_snapline.toggled.connect(lambda s: self._on_config_toggle("show_snaplines", bool(s)))
+        self.sw_esp_ghost = self._create_switch_row(c4_lay, "Ghost Mode", checked=True)
+        self.sw_esp_ghost.toggled.connect(lambda s: self._on_config_toggle("ghost_tracking", bool(s)))
         c4_lay.addStretch()
         col3.addWidget(c4, stretch=3)
 
@@ -605,7 +730,7 @@ class AuraEliteHUDWindow(QMainWindow):
         shield_lay.setAlignment(Qt.AlignmentFlag.AlignCenter)
         shield_lay.setSpacing(4)
 
-        self.vec_shield = VectorShieldWidget(size=60)
+        self.vec_shield = VectorShieldWidget(size=56)
         shield_lay.addWidget(self.vec_shield, alignment=Qt.AlignmentFlag.AlignCenter)
 
         lbl_undetected = QLabel("Undetected")
@@ -618,7 +743,23 @@ class AuraEliteHUDWindow(QMainWindow):
         lbl_safe.setAlignment(Qt.AlignmentFlag.AlignCenter)
         shield_lay.addWidget(lbl_safe)
 
+        # Streamer Mode Toggle inside Detection Status
         c5_lay.addLayout(shield_lay)
+        c5_lay.addSpacing(4)
+        sep_streamer = QFrame()
+        sep_streamer.setFrameShape(QFrame.Shape.HLine)
+        sep_streamer.setObjectName("CardSeparator")
+        c5_lay.addWidget(sep_streamer)
+
+        self.sw_streamer = self._create_switch_row(c5_lay, "Streamer Mode", checked=True)
+        self.sw_streamer.toggled.connect(self._on_streamer_mode_toggle)
+
+        lbl_streamer_sub = QLabel("OBS / Discord Stealth")
+        lbl_streamer_sub.setObjectName("RowSub")
+        lbl_streamer_sub.setStyleSheet("color: #64748B; font-size: 10px; text-align: center;")
+        lbl_streamer_sub.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        c5_lay.addWidget(lbl_streamer_sub)
+
         c5_lay.addStretch()
         col3.addWidget(c5, stretch=2)
 
@@ -663,9 +804,180 @@ class AuraEliteHUDWindow(QMainWindow):
         if active:
             self.lbl_aim_state.setText("Aimbot\nON")
             self.lbl_aim_state.setStyleSheet("color: #00FF66; font-weight: 900; font-size: 13px;")
+            self.lbl_dot.setText("●")
+            self.lbl_dot.setStyleSheet("color: #00FF66; font-size: 14px;")
+            self.lbl_status.setText("Status: Active")
+            self.lbl_status.setStyleSheet("color: #00FF66; font-weight: 800; font-size: 11px;")
         else:
             self.lbl_aim_state.setText("Aimbot\nOFF")
             self.lbl_aim_state.setStyleSheet("color: #64748B; font-weight: 900; font-size: 13px;")
+            self.lbl_dot.setText("●")
+            self.lbl_dot.setStyleSheet("color: #FFB300; font-size: 14px;")
+            self.lbl_status.setText("Status: Standby")
+            self.lbl_status.setStyleSheet("color: #FFB300; font-weight: 800; font-size: 11px;")
+
+        self.config.set("enabled", active)
+        self.config.set("makcu_enabled", active)
+        self.config_data["enabled"] = active
+        self.config_data["makcu_enabled"] = active
+        if self.overlay_window and hasattr(self.overlay_window, "update"):
+            self.overlay_window.update()
+
+    def _sync_engine_power_ui(self):
+        """Called by yolo_main.py hotkey poller when 'C' toggles engine state."""
+        is_active = bool(self.config.get("enabled", True))
+        self.sw_aimbot.blockSignals(True)
+        self.sw_aimbot.setChecked(is_active)
+        self.sw_aimbot.blockSignals(False)
+        if is_active:
+            self.lbl_aim_state.setText("Aimbot\nON")
+            self.lbl_aim_state.setStyleSheet("color: #00FF66; font-weight: 900; font-size: 13px;")
+            self.lbl_dot.setText("●")
+            self.lbl_dot.setStyleSheet("color: #00FF66; font-size: 14px;")
+            self.lbl_status.setText("Status: Active")
+            self.lbl_status.setStyleSheet("color: #00FF66; font-weight: 800; font-size: 11px;")
+        else:
+            self.lbl_aim_state.setText("Aimbot\nOFF")
+            self.lbl_aim_state.setStyleSheet("color: #64748B; font-weight: 900; font-size: 13px;")
+            self.lbl_dot.setText("●")
+            self.lbl_dot.setStyleSheet("color: #FFB300; font-size: 14px;")
+            self.lbl_status.setText("Status: Standby")
+            self.lbl_status.setStyleSheet("color: #FFB300; font-weight: 800; font-size: 11px;")
+
+    def _sync_headless_ui(self):
+        pass
+
+    def _on_fov_slider_changed(self, v: int):
+        self.lbl_fov_val.setText(f"{v}°")
+        self.config.set("makcu_fov", v)
+        self.config_data["makcu_fov"] = v
+        if self.overlay_window and hasattr(self.overlay_window, "update"):
+            self.overlay_window.update()
+
+    def _on_smooth_slider_changed(self, v: int):
+        smooth = v / 10.0
+        self.lbl_smooth_val.setText(f"{smooth:.1f}")
+        self.config.set("makcu_smooth", smooth)
+        self.config_data["makcu_smooth"] = smooth
+
+    def _on_aim_key_changed(self, idx: int):
+        key_map = {0: "rmb", 1: "lalt", 2: "xbutton1", 3: "xbutton2", 4: "always"}
+        k = key_map.get(idx, "rmb")
+        self.config.set("makcu_aim_key", k)
+        self.config_data["makcu_aim_key"] = k
+
+    def _on_target_bone_changed(self, idx: int):
+        bone_map = {0: "head", 1: "neck", 2: "chest"}
+        b = bone_map.get(idx, "head")
+        self.config.set("makcu_target_bone", b)
+        self.config_data["makcu_target_bone"] = b
+
+    def _on_linear_snap_toggle(self, active: bool):
+        self.config.set("linear_head_snap", active)
+        self.config_data["linear_head_snap"] = active
+        if active:
+            self.slider_head_decel.blockSignals(True)
+            self.slider_head_decel.setValue(0)
+            self.lbl_decel_val.setText("0%")
+            self.slider_head_decel.blockSignals(False)
+            self.config.set("head_decel_strength", 0)
+            self.config_data["head_decel_strength"] = 0
+
+    def _on_head_decel_changed(self, v: int):
+        self.lbl_decel_val.setText(f"{v}%")
+        self.config.set("head_decel_strength", v)
+        self.config_data["head_decel_strength"] = v
+        is_linear = (v == 0)
+        self.config.set("linear_head_snap", is_linear)
+        self.config_data["linear_head_snap"] = is_linear
+        self.chk_linear_snap.blockSignals(True)
+        self.chk_linear_snap.setChecked(is_linear)
+        self.chk_linear_snap.blockSignals(False)
+
+    def _on_streamer_mode_toggle(self, active: bool):
+        self.config.set("streamer_mode", active)
+        self.config_data["streamer_mode"] = active
+        if self.overlay_window and hasattr(self.overlay_window, "apply_streamer_mode"):
+            self.overlay_window.apply_streamer_mode()
+
+    def _on_trigger_tol_changed(self, v: int):
+        self.lbl_tol_val.setText(f"{v} px")
+        self.config.set("makcu_trigger_tolerance", v)
+        self.config_data["makcu_trigger_tolerance"] = v
+
+    def _on_trigger_lock_del_changed(self, v: int):
+        self.lbl_lock_del_val.setText(f"{v} ms")
+        self.config.set("makcu_trigger_lock_delay_ms", v)
+        self.config_data["makcu_trigger_lock_delay_ms"] = v
+
+    def _on_config_toggle(self, key: str, value: bool):
+        self.config.set(key, value)
+        self.config_data[key] = value
+        if self.overlay_window and hasattr(self.overlay_window, "update"):
+            self.overlay_window.update()
+
+    def _on_conf_changed(self, v: int):
+        c = v / 100.0
+        self.lbl_conf_val.setText(f"{c:.2f}")
+        self.config.set("confidence_threshold", c)
+        self.config_data["confidence_threshold"] = c
+
+    def _on_iou_changed(self, v: int):
+        i = v / 100.0
+        self.lbl_iou_val.setText(f"{i:.2f}")
+        self.config.set("iou_threshold", i)
+        self.config_data["iou_threshold"] = i
+
+    def _on_scan_mode_changed(self, idx: int):
+        scan_map = {0: "center_480", 1: "center_640", 2: "fullscreen"}
+        sm = scan_map.get(idx, "center_480")
+        self.config.set("scan_region_mode", sm)
+        self.config_data["scan_region_mode"] = sm
+        if self.overlay_window and hasattr(self.overlay_window, "update"):
+            self.overlay_window.update()
+
+    def _on_telemetry_tick(self):
+        if not self.engine:
+            return
+        try:
+            state = self.engine.get_state()
+            fps = float(state.get("fps", 0.0))
+            infer_ms = float(state.get("infer_time_ms", 0.0))
+            targets = int(state.get("targets_detected", 0))
+            is_aiming = bool(state.get("is_aiming", False))
+            is_enabled = bool(self.config.get("enabled", True))
+
+            if is_enabled:
+                self.lbl_dot.setText("●")
+                self.lbl_dot.setStyleSheet("color: #00FF66; font-size: 14px;")
+                if is_aiming:
+                    self.lbl_status.setText("Status: LOCKED 🎯")
+                    self.lbl_status.setStyleSheet("color: #FFE600; font-weight: 900; font-size: 11px;")
+                else:
+                    self.lbl_status.setText("Status: Active")
+                    self.lbl_status.setStyleSheet("color: #00FF66; font-weight: 800; font-size: 11px;")
+                fps_disp = f"{fps:.0f} FPS" if fps > 0 else "Online"
+                self.lbl_ai.setText(f"AI Engine: {fps_disp}")
+                self.lbl_ai.setStyleSheet("color: #00FFCC; font-weight: 800; font-size: 11px;")
+            else:
+                self.lbl_dot.setText("●")
+                self.lbl_dot.setStyleSheet("color: #FFB300; font-size: 14px;")
+                self.lbl_status.setText("Status: Standby")
+                self.lbl_status.setStyleSheet("color: #FFB300; font-weight: 800; font-size: 11px;")
+                self.lbl_ai.setText("AI Engine: Paused")
+                self.lbl_ai.setStyleSheet("color: #94A3B8; font-weight: 800; font-size: 11px;")
+
+            # Sidebar FPS update
+            if hasattr(self, "lbl_fps_val"):
+                self.lbl_fps_val.setText(f"🚀 {fps:.0f} FPS" if fps > 0 else "🚀 280+ FPS")
+
+            # AI Engine Hub Benchmark update
+            if hasattr(self, "lbl_hud_speed"):
+                lat_str = f"{infer_ms:.2f}ms" if infer_ms > 0 else "0.05ms"
+                fps_str = f"{fps:.0f} FPS" if fps > 0 else "280+ FPS"
+                self.lbl_hud_speed.setText(f"Live Pipeline: {fps_str} @ {lat_str} Latency · Targets: {targets}")
+        except Exception:
+            pass
 
     # -----------------------------------------------------------------
     # PAGE 1: DEDICATED AI ENGINE & MODEL HUB (Replaces ESP)
@@ -766,7 +1078,7 @@ class AuraEliteHUDWindow(QMainWindow):
         self.slider_conf.setObjectName("CyberSlider")
         self.slider_conf.setRange(20, 95)
         self.slider_conf.setValue(70)
-        self.slider_conf.valueChanged.connect(lambda v: self.lbl_conf_val.setText(f"{v/100.0:.2f}"))
+        self.slider_conf.valueChanged.connect(self._on_conf_changed)
         t_lay.addWidget(self.slider_conf)
 
         # IoU NMS Suppression Slider
@@ -790,7 +1102,7 @@ class AuraEliteHUDWindow(QMainWindow):
         self.slider_iou.setObjectName("CyberSlider")
         self.slider_iou.setRange(15, 80)
         self.slider_iou.setValue(45)
-        self.slider_iou.valueChanged.connect(lambda v: self.lbl_iou_val.setText(f"{v/100.0:.2f}"))
+        self.slider_iou.valueChanged.connect(self._on_iou_changed)
         t_lay.addWidget(self.slider_iou)
 
         # Scan Region Mode Dropdown
@@ -806,13 +1118,17 @@ class AuraEliteHUDWindow(QMainWindow):
             "Center 640x640 (Balanced Detection Zone)",
             "Fullscreen 1920x1080 (Wide Radar Scan)"
         ])
+        self.combo_scan_mode.currentIndexChanged.connect(self._on_scan_mode_changed)
         t_lay.addWidget(self.combo_scan_mode)
 
         # Advanced Pipeline Checkboxes
         t_lay.addSpacing(8)
         self.chk_zoom = self._create_checkbox_row(t_lay, "Dynamic Combat Zoom", "Auto-focuses region during active fire", checked=True)
+        self.chk_zoom.stateChanged.connect(lambda s: self._on_config_toggle("dynamic_combat_zoom", bool(s)))
         self.chk_half = self._create_checkbox_row(t_lay, "Half-Precision (FP16)", "Hardware Tensor Core acceleration", checked=True)
+        self.chk_half.stateChanged.connect(lambda s: self._on_config_toggle("use_half_precision", bool(s)))
         self.chk_nms = self._create_checkbox_row(t_lay, "Agnostic NMS", "Faster non-maximum suppression", checked=True)
+        self.chk_nms.stateChanged.connect(lambda s: self._on_config_toggle("agnostic_nms", bool(s)))
 
         t_lay.addStretch()
         lay.addWidget(c_tuning, stretch=2)
@@ -822,11 +1138,39 @@ class AuraEliteHUDWindow(QMainWindow):
     def _on_model_changed(self, idx: int):
         if idx < 0 or idx >= len(self.model_items):
             return
-        gid, name, eng = self.model_items[idx]
+        gid, name, eng_file = self.model_items[idx]
+        self.config.set("active_game_profile", gid)
         self.config_data["active_game_profile"] = gid
-        self.config_data["model_path"] = eng
-        self.lbl_hud_name.setText(f"Active: {eng}")
-        self.lbl_hud_spec.setText(f"Game: {name} · FP16 TensorRT 10/11")
+
+        # Look for model on disk (.engine, .onnx, or .pt)
+        candidates = [
+            os.path.join(BASE_DIR, eng_file),
+            os.path.join(BASE_DIR, eng_file.replace(".engine", ".onnx")),
+            os.path.join(BASE_DIR, eng_file.replace(".engine", ".pt")),
+            os.path.join(BASE_DIR, "models", eng_file),
+        ]
+        chosen = None
+        for c in candidates:
+            if os.path.exists(c):
+                chosen = c
+                break
+
+        if chosen:
+            fname = os.path.basename(chosen)
+            self.config.set("model_path", fname)
+            self.config_data["model_path"] = fname
+            if self.engine:
+                self.engine.load_model(chosen)
+            self.lbl_hud_name.setText(f"Active: {fname}")
+            if fname.endswith(".engine"):
+                self.lbl_hud_spec.setText(f"Format: Direct TensorRT 10/11 · {name}")
+            else:
+                self.lbl_hud_spec.setText(f"Format: ONNX / CUDA Ingestion · {name}")
+        else:
+            self.config.set("model_path", eng_file)
+            self.config_data["model_path"] = eng_file
+            self.lbl_hud_name.setText(f"Active: {eng_file}")
+            self.lbl_hud_spec.setText(f"Game: {name} · FP16 TensorRT 10/11")
 
     def _handle_browse_custom_model(self):
         fpath, _ = QFileDialog.getOpenFileName(
@@ -835,10 +1179,17 @@ class AuraEliteHUDWindow(QMainWindow):
         )
         if fpath and os.path.exists(fpath):
             fname = os.path.basename(fpath)
-            self.config_data["model_path"] = fname
+            self.config.set("model_path", fpath)
+            self.config_data["model_path"] = fpath
+            self.config.set("active_game_profile", "custom")
+            self.config_data["active_game_profile"] = "custom"
+            if self.engine:
+                self.engine.load_model(fpath)
             self.lbl_hud_name.setText(f"Custom: {fname}")
-            self.lbl_hud_spec.setText("Format: Custom Weights Ingestion")
+            self.lbl_hud_spec.setText(f"Format: Custom Neural Model ({fname})")
+            self.combo_model.blockSignals(True)
             self.combo_model.setCurrentIndex(-1)
+            self.combo_model.blockSignals(False)
 
     def _handle_auto_convert(self):
         try:
@@ -893,7 +1244,10 @@ class AuraEliteHUDWindow(QMainWindow):
         is_dual = (mode == "capture_card")
         self.btn_hw_single.setChecked(not is_dual)
         self.btn_hw_dual.setChecked(is_dual)
+        self.config.set("capture_source", mode)
         self.config_data["capture_source"] = mode
+        if self.engine:
+            self.engine.capture_source = mode
         if is_dual:
             self.lbl_hw_status.setText("⚡ Active: Dual-PC 100% Hardware Isolated via HDMI Capture Card")
             self.lbl_hw_status.setStyleSheet("color: #00FFCC; font-weight: bold;")
@@ -910,19 +1264,31 @@ class AuraEliteHUDWindow(QMainWindow):
         card = CyberCard("Tactical Profiles & Preset Manager", "📁")
         c_lay = card.card_layout
 
-        lbl = QLabel("Active Game Profiles:")
+        lbl = QLabel("Quick-Switch Game Profile & Neural Engine:")
         lbl.setObjectName("ControlTitle")
         c_lay.addWidget(lbl)
 
-        games = ["Valorant (Direct TRT 10)", "Fortnite 100K (260+ FPS)", "ARC Raiders (YOLO11)", "CS2 (GGMCS2)", "Battlefield 2042"]
-        for g in games:
-            b = QPushButton(f"🎮  {g}")
+        games = [
+            ("valorant", "Valorant (Direct TRT 10)", 0),
+            ("fortnite", "Fortnite 100K (260+ FPS)", 1),
+            ("arc_raiders", "ARC Raiders (YOLO11)", 2),
+            ("cs2", "Counter-Strike 2 (GGMCS2)", 3),
+            ("battlefield_2042", "Battlefield 2042 (FP16 TRT)", 4),
+        ]
+        for gid, gname, m_idx in games:
+            b = QPushButton(f"🎮  {gname}")
             b.setObjectName("ProfileSelectBtn")
+            b.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            b.clicked.connect(lambda _, idx=m_idx: self._select_profile_by_index(idx))
             c_lay.addWidget(b)
 
         c_lay.addStretch()
         lay.addWidget(card)
         return page
+
+    def _select_profile_by_index(self, idx: int):
+        self.combo_model.setCurrentIndex(idx)
+        self._switch_tab(1)
 
     # -----------------------------------------------------------------
     # PAGE 4: ABOUT TAB
@@ -993,113 +1359,198 @@ class AuraEliteHUDWindow(QMainWindow):
     # CONFIG SYNCHRONIZATION & ACTIONS
     # -----------------------------------------------------------------
     def _sync_ui_from_config(self):
-        cfg = self.config_data
-        # FOV
-        fov = int(cfg.get("makcu_fov", 120))
-        self.slider_fov.setValue(fov)
-        self.lbl_fov_val.setText(f"{fov}°")
+        cfg = self.config.data
+        
+        widgets_to_block = [
+            self.slider_fov, self.slider_smooth, self.combo_aim_key,
+            self.combo_target, self.chk_pred, self.chk_smart, self.chk_anti_snap,
+            self.chk_linear_snap, self.slider_head_decel,
+            self.sw_recoil, self.sw_spread, self.sw_auto_fire, self.sw_trigger,
+            self.sw_lock_trigger, self.slider_tol, self.slider_lock_del,
+            self.sw_esp_box, self.sw_esp_skel, self.sw_esp_hp, self.sw_esp_name,
+            self.sw_esp_dist, self.sw_snapline, self.sw_esp_ghost, self.sw_streamer,
+            self.combo_model, self.slider_conf, self.slider_iou, self.combo_scan_mode,
+            self.chk_zoom, self.chk_half, self.chk_nms, self.sw_aimbot
+        ]
+        for w in widgets_to_block:
+            w.blockSignals(True)
 
-        # Smoothness
-        smooth = float(cfg.get("makcu_smooth", 3.0))
-        self.slider_smooth.setValue(int(smooth * 10))
-        self.lbl_smooth_val.setText(f"{smooth:.1f}")
+        try:
+            # Master Aimbot Switch
+            is_enabled = bool(cfg.get("enabled", True))
+            self.sw_aimbot.setChecked(is_enabled)
+            if is_enabled:
+                self.lbl_aim_state.setText("Aimbot\nON")
+                self.lbl_aim_state.setStyleSheet("color: #00FF66; font-weight: 900; font-size: 13px;")
+            else:
+                self.lbl_aim_state.setText("Aimbot\nOFF")
+                self.lbl_aim_state.setStyleSheet("color: #64748B; font-weight: 900; font-size: 13px;")
 
-        # Aim Key
-        key = str(cfg.get("makcu_aim_key", "right")).lower()
-        if "right" in key or "rmb" in key:
-            self.combo_aim_key.setCurrentIndex(0)
-        elif "alt" in key:
-            self.combo_aim_key.setCurrentIndex(1)
-        elif "4" in key:
-            self.combo_aim_key.setCurrentIndex(2)
-        elif "5" in key:
-            self.combo_aim_key.setCurrentIndex(3)
-        elif "always" in key:
-            self.combo_aim_key.setCurrentIndex(4)
+            # FOV
+            fov = int(cfg.get("makcu_fov", 120))
+            self.slider_fov.setValue(fov)
+            self.lbl_fov_val.setText(f"{fov}°")
 
-        # Target Bone
-        bone = str(cfg.get("makcu_target_bone", "head")).lower()
-        if "neck" in bone:
-            self.combo_target.setCurrentIndex(1)
-        elif "chest" in bone or "body" in bone:
-            self.combo_target.setCurrentIndex(2)
-        else:
-            self.combo_target.setCurrentIndex(0)
+            # Smoothness
+            smooth = float(cfg.get("makcu_smooth", 3.0))
+            self.slider_smooth.setValue(int(smooth * 10))
+            self.lbl_smooth_val.setText(f"{smooth:.1f}")
 
-        # AI Prediction
-        self.chk_pred.setChecked(bool(cfg.get("makcu_prediction", True)))
-        self.sw_trigger.setChecked(bool(cfg.get("makcu_triggerbot", False)))
+            # Aim Key
+            key = str(cfg.get("makcu_aim_key", "rmb")).lower()
+            if "rmb" in key or "right" in key:
+                self.combo_aim_key.setCurrentIndex(0)
+            elif "alt" in key:
+                self.combo_aim_key.setCurrentIndex(1)
+            elif "1" in key or "4" in key:
+                self.combo_aim_key.setCurrentIndex(2)
+            elif "2" in key or "5" in key:
+                self.combo_aim_key.setCurrentIndex(3)
+            elif "always" in key:
+                self.combo_aim_key.setCurrentIndex(4)
 
-        # ESP states
-        self.sw_esp_box.setChecked(bool(cfg.get("show_boxes", True)))
-        self.sw_snapline.setChecked(bool(cfg.get("show_snaplines", True)))
-        self.sw_esp_dist.setChecked(bool(cfg.get("show_distance", True)))
+            # Target Bone
+            bone = str(cfg.get("makcu_target_bone", "head")).lower()
+            if "neck" in bone:
+                self.combo_target.setCurrentIndex(1)
+            elif "chest" in bone or "body" in bone or "center" in bone:
+                self.combo_target.setCurrentIndex(2)
+            else:
+                self.combo_target.setCurrentIndex(0)
 
-        # AI Engine Page Sync
-        active_prof = str(cfg.get("active_game_profile", "valorant")).lower()
-        for idx, (gid, _, _) in enumerate(self.model_items):
-            if gid in active_prof:
-                self.combo_model.setCurrentIndex(idx)
-                break
+            # AI Features
+            self.chk_pred.setChecked(bool(cfg.get("makcu_prediction", True)))
+            self.chk_smart.setChecked(bool(cfg.get("makcu_lock_on_target", False)))
+            self.chk_anti_snap.setChecked(bool(cfg.get("makcu_anti_snap", True)))
 
-        conf = float(cfg.get("confidence_threshold", 0.70))
-        self.slider_conf.setValue(int(conf * 100))
-        self.lbl_conf_val.setText(f"{conf:.2f}")
+            # Linear Head Snap & Deceleration
+            is_linear = bool(cfg.get("linear_head_snap", True))
+            decel_val = int(cfg.get("head_decel_strength", 0))
+            self.chk_linear_snap.setChecked(is_linear)
+            self.slider_head_decel.setValue(decel_val)
+            self.lbl_decel_val.setText(f"{decel_val}%" if decel_val > 0 else "0% (Aus)")
 
-        iou = float(cfg.get("iou_threshold", 0.45))
-        self.slider_iou.setValue(int(iou * 100))
-        self.lbl_iou_val.setText(f"{iou:.2f}")
+            # Miscellaneous
+            self.sw_recoil.setChecked(bool(cfg.get("makcu_recoil_compensation", True)))
+            self.sw_spread.setChecked(bool(cfg.get("no_spread_enabled", True)))
+            self.sw_auto_fire.setChecked(bool(cfg.get("makcu_auto_shoot", False)))
+            self.sw_trigger.setChecked(bool(cfg.get("makcu_triggerbot", False)))
+            self.sw_lock_trigger.setChecked(bool(cfg.get("makcu_trigger_on_lock_only", True)))
+            tol_val = int(cfg.get("makcu_trigger_tolerance", 5))
+            self.slider_tol.setValue(tol_val)
+            self.lbl_tol_val.setText(f"{tol_val} px")
+            del_val = int(cfg.get("makcu_trigger_lock_delay_ms", 25))
+            self.slider_lock_del.setValue(del_val)
+            self.lbl_lock_del_val.setText(f"{del_val} ms")
 
-        s_mode = str(cfg.get("scan_region_mode", "center_480")).lower()
-        if "640" in s_mode:
-            self.combo_scan_mode.setCurrentIndex(1)
-        elif "full" in s_mode:
-            self.combo_scan_mode.setCurrentIndex(2)
-        else:
-            self.combo_scan_mode.setCurrentIndex(0)
+            # ESP states & Ghost Mode
+            self.sw_esp_box.setChecked(bool(cfg.get("show_boxes", True)))
+            self.sw_esp_skel.setChecked(bool(cfg.get("show_skeleton", True)))
+            self.sw_esp_hp.setChecked(bool(cfg.get("show_health", True)))
+            self.sw_esp_name.setChecked(bool(cfg.get("show_labels", False)))
+            self.sw_esp_dist.setChecked(bool(cfg.get("show_distance", True)))
+            self.sw_snapline.setChecked(bool(cfg.get("show_snaplines", True)))
+            self.sw_esp_ghost.setChecked(bool(cfg.get("ghost_tracking", True)))
 
-        self.chk_zoom.setChecked(bool(cfg.get("dynamic_combat_zoom", True)))
-        self.chk_half.setChecked(bool(cfg.get("use_half_precision", True)))
-        self.chk_nms.setChecked(bool(cfg.get("agnostic_nms", True)))
+            # Streamer Mode
+            self.sw_streamer.setChecked(bool(cfg.get("streamer_mode", True)))
+
+            # AI Engine Page Sync
+            active_prof = str(cfg.get("active_game_profile", "valorant")).lower()
+            for idx, (gid, _, _) in enumerate(self.model_items):
+                if gid in active_prof:
+                    self.combo_model.setCurrentIndex(idx)
+                    break
+
+            conf = float(cfg.get("confidence_threshold", 0.70))
+            self.slider_conf.setValue(int(conf * 100))
+            self.lbl_conf_val.setText(f"{conf:.2f}")
+
+            iou = float(cfg.get("iou_threshold", 0.45))
+            self.slider_iou.setValue(int(iou * 100))
+            self.lbl_iou_val.setText(f"{iou:.2f}")
+
+            s_mode = str(cfg.get("scan_region_mode", "center_480")).lower()
+            if "640" in s_mode:
+                self.combo_scan_mode.setCurrentIndex(1)
+            elif "full" in s_mode:
+                self.combo_scan_mode.setCurrentIndex(2)
+            else:
+                self.combo_scan_mode.setCurrentIndex(0)
+
+            self.chk_zoom.setChecked(bool(cfg.get("dynamic_combat_zoom", True)))
+            self.chk_half.setChecked(bool(cfg.get("use_half_precision", True)))
+            self.chk_nms.setChecked(bool(cfg.get("agnostic_nms", True)))
+
+            # Hardware page
+            pipe = str(cfg.get("capture_source", "desktop")).lower()
+            if hasattr(self, "btn_hw_single") and hasattr(self, "btn_hw_dual"):
+                self._set_pipe_mode(pipe)
+        finally:
+            for w in widgets_to_block:
+                w.blockSignals(False)
 
     def _handle_apply_settings(self):
-        # Update config dict
-        self.config_data["makcu_fov"] = self.slider_fov.value()
-        self.config_data["makcu_smooth"] = self.slider_smooth.value() / 10.0
+        # Update config directly
+        self.config.set("makcu_fov", self.slider_fov.value())
+        self.config.set("makcu_smooth", self.slider_smooth.value() / 10.0)
 
         key_idx = self.combo_aim_key.currentIndex()
-        key_map = {0: "right", 1: "alt", 2: "mouse4", 3: "mouse5", 4: "always"}
-        self.config_data["makcu_aim_key"] = key_map.get(key_idx, "right")
+        key_map = {0: "rmb", 1: "lalt", 2: "xbutton1", 3: "xbutton2", 4: "always"}
+        self.config.set("makcu_aim_key", key_map.get(key_idx, "rmb"))
 
         bone_idx = self.combo_target.currentIndex()
         bone_map = {0: "head", 1: "neck", 2: "chest"}
-        self.config_data["makcu_target_bone"] = bone_map.get(bone_idx, "head")
+        self.config.set("makcu_target_bone", bone_map.get(bone_idx, "head"))
 
-        self.config_data["makcu_prediction"] = self.chk_pred.isChecked()
-        self.config_data["makcu_triggerbot"] = self.sw_trigger.isChecked()
+        self.config.set("makcu_prediction", self.chk_pred.isChecked())
+        self.config.set("makcu_lock_on_target", self.chk_smart.isChecked())
+        self.config.set("makcu_anti_snap", self.chk_anti_snap.isChecked())
 
-        self.config_data["show_boxes"] = self.sw_esp_box.isChecked()
-        self.config_data["show_snaplines"] = self.sw_snapline.isChecked()
-        self.config_data["show_distance"] = self.sw_esp_dist.isChecked()
+        self.config.set("makcu_recoil_compensation", self.sw_recoil.isChecked())
+        self.config.set("no_spread_enabled", self.sw_spread.isChecked())
+        self.config.set("makcu_auto_shoot", self.sw_auto_fire.isChecked())
+        self.config.set("makcu_triggerbot", self.sw_trigger.isChecked())
+        self.config.set("makcu_trigger_on_lock_only", self.sw_lock_trigger.isChecked())
+        self.config.set("makcu_trigger_tolerance", self.slider_tol.value())
+        self.config.set("makcu_trigger_lock_delay_ms", self.slider_lock_del.value())
+
+        self.config.set("show_boxes", self.sw_esp_box.isChecked())
+        self.config.set("show_skeleton", self.sw_esp_skel.isChecked())
+        self.config.set("show_health", self.sw_esp_hp.isChecked())
+        self.config.set("show_labels", self.sw_esp_name.isChecked())
+        self.config.set("show_distance", self.sw_esp_dist.isChecked())
+        self.config.set("show_snaplines", self.sw_snapline.isChecked())
+        self.config.set("ghost_tracking", self.sw_esp_ghost.isChecked())
+        self.config.set("streamer_mode", self.sw_streamer.isChecked())
+        if self.overlay_window and hasattr(self.overlay_window, "apply_streamer_mode"):
+            self.overlay_window.apply_streamer_mode()
+
+        # Linear Head Snap & Deceleration
+        self.config.set("linear_head_snap", self.chk_linear_snap.isChecked())
+        self.config.set("head_decel_strength", self.slider_head_decel.value())
 
         # AI Engine Page Settings
-        self.config_data["confidence_threshold"] = self.slider_conf.value() / 100.0
-        self.config_data["iou_threshold"] = self.slider_iou.value() / 100.0
+        self.config.set("confidence_threshold", self.slider_conf.value() / 100.0)
+        self.config.set("iou_threshold", self.slider_iou.value() / 100.0)
 
         scan_idx = self.combo_scan_mode.currentIndex()
         scan_map = {0: "center_480", 1: "center_640", 2: "fullscreen"}
-        self.config_data["scan_region_mode"] = scan_map.get(scan_idx, "center_480")
+        self.config.set("scan_region_mode", scan_map.get(scan_idx, "center_480"))
 
-        self.config_data["dynamic_combat_zoom"] = self.chk_zoom.isChecked()
-        self.config_data["use_half_precision"] = self.chk_half.isChecked()
-        self.config_data["agnostic_nms"] = self.chk_nms.isChecked()
+        self.config.set("dynamic_combat_zoom", self.chk_zoom.isChecked())
+        self.config.set("use_half_precision", self.chk_half.isChecked())
+        self.config.set("agnostic_nms", self.chk_nms.isChecked())
 
-        self._save_config()
+        self.config.save()
+        if self.overlay_window and hasattr(self.overlay_window, "update"):
+            self.overlay_window.update()
 
         self.btn_apply.setText("✔  SETTINGS SAVED!")
         self.btn_apply.setStyleSheet("background: #00FF66; color: #000000; font-weight: 900; border-radius: 6px;")
-        QApplication.processEvents()
-        time.sleep(0.35)
+        QTimer.singleShot(400, self._reset_apply_btn)
+
+    def _reset_apply_btn(self):
         self.btn_apply.setText("✔  Apply Settings")
         self.btn_apply.setStyleSheet("")
 
@@ -1108,9 +1559,13 @@ class AuraEliteHUDWindow(QMainWindow):
         if fpath and os.path.exists(fpath):
             try:
                 with open(fpath, "r", encoding="utf-8") as f:
-                    self.config_data = json.load(f)
+                    loaded = json.load(f)
+                self.config.data.update(loaded)
+                self.config.save()
                 self._sync_ui_from_config()
-                self._save_config()
+                if self.overlay_window and hasattr(self.overlay_window, "update"):
+                    self.overlay_window.update()
+                QMessageBox.information(self, "Preset Loaded", "Tactical preset loaded successfully!")
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Failed to load config: {e}")
 
@@ -1119,7 +1574,7 @@ class AuraEliteHUDWindow(QMainWindow):
         if fpath:
             try:
                 with open(fpath, "w", encoding="utf-8") as f:
-                    json.dump(self.config_data, f, indent=4)
+                    json.dump(self.config.data, f, indent=4)
                 QMessageBox.information(self, "Saved", "Preset successfully saved!")
             except Exception as e:
                 QMessageBox.warning(self, "Error", f"Failed to save preset: {e}")
@@ -1130,18 +1585,26 @@ class AuraEliteHUDWindow(QMainWindow):
         self.combo_aim_key.setCurrentIndex(0)
         self.combo_target.setCurrentIndex(0)
         self.chk_pred.setChecked(True)
-        self.chk_smart.setChecked(True)
+        self.chk_smart.setChecked(False)
         self.chk_anti_snap.setChecked(True)
         self.sw_recoil.setChecked(True)
         self.sw_spread.setChecked(True)
         self.sw_auto_fire.setChecked(False)
         self.sw_trigger.setChecked(False)
+        self.sw_lock_trigger.setChecked(True)
+        self.slider_tol.setValue(5)
+        self.slider_lock_del.setValue(25)
         self.sw_esp_box.setChecked(True)
         self.sw_esp_skel.setChecked(True)
         self.sw_esp_hp.setChecked(True)
         self.sw_esp_name.setChecked(False)
         self.sw_esp_dist.setChecked(True)
         self.sw_snapline.setChecked(True)
+        self.sw_esp_ghost.setChecked(True)
+        self.sw_streamer.setChecked(True)
+        self.chk_linear_snap.setChecked(True)
+        self.slider_head_decel.setValue(0)
+        self.lbl_decel_val.setText("0% (Aus)")
         self.slider_conf.setValue(70)
         self.slider_iou.setValue(45)
         self.combo_scan_mode.setCurrentIndex(0)
@@ -1510,10 +1973,74 @@ def main():
         pass
 
     app = QApplication(sys.argv)
-    win = AuraEliteHUDWindow()
+    app.setQuitOnLastWindowClosed(False)
+
+    config = YOLOConfig()
+    engine = YOLOEngine(config)
+    engine.start()
+
+    screen = QGuiApplication.primaryScreen()
+    screen_rect = screen.geometry() if screen else None
+
+    overlay = None
+    if screen_rect:
+        overlay = YOLOOverlayWindow(engine, config)
+        overlay.setGeometry(screen_rect)
+        if not bool(config.get("headless_mode", False)):
+            overlay.show()
+            overlay.raise_()
+
+    win = AuraEliteHUDWindow(engine=engine, config=config, overlay_window=overlay)
+    if screen_rect:
+        win.move(
+            screen_rect.x() + (screen_rect.width() - win.width()) // 2,
+            screen_rect.y() + (screen_rect.height() - win.height()) // 2
+        )
     win.show()
     win.raise_()
     win.activateWindow()
+
+    # Native Win32 Hardware Polling for Hotkeys ('C', 'F7', 'F8')
+    user32_api = ctypes.windll.user32
+    key_prev = {"c": False, "f7": False, "f8": False}
+
+    def poll_hotkeys():
+        # 'C' = 0x43 (Toggle Aimbot & Engine)
+        c_down = (user32_api.GetAsyncKeyState(0x43) & 0x8000) != 0
+        if c_down and not key_prev["c"]:
+            new_s = not bool(config.get("enabled", True))
+            config.set("enabled", new_s)
+            config.set("makcu_enabled", new_s)
+            win._sync_engine_power_ui()
+        key_prev["c"] = c_down
+
+        # 'F7' = 0x76 (Toggle Overlay)
+        f7_down = (user32_api.GetAsyncKeyState(0x76) & 0x8000) != 0
+        if f7_down and not key_prev["f7"]:
+            if overlay:
+                if overlay.isVisible():
+                    config.set("headless_mode", True)
+                    overlay.hide()
+                else:
+                    config.set("headless_mode", False)
+                    overlay.show()
+        key_prev["f7"] = f7_down
+
+        # 'F8' = 0x77 (Toggle GUI)
+        f8_down = (user32_api.GetAsyncKeyState(0x77) & 0x8000) != 0
+        if f8_down and not key_prev["f8"]:
+            if win.isVisible():
+                win.hide()
+            else:
+                win.show()
+                win.raise_()
+                win.activateWindow()
+        key_prev["f8"] = f8_down
+
+    hk_timer = QTimer(app)
+    hk_timer.timeout.connect(poll_hotkeys)
+    hk_timer.start(18)
+
     sys.exit(app.exec())
 
 

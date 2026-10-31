@@ -70,6 +70,7 @@ class MAKCU_AimbotEngine:
         self.last_trigger_time = 0.0
         self.trigger_burst_count = 0
         self.burst_cooldown_until = 0.0
+        self.target_lock_start_time = 0.0
 
         # Auto-connect asynchronously in background so startup remains instant
         threading.Thread(target=self.connect, daemon=True).start()
@@ -299,64 +300,83 @@ class MAKCU_AimbotEngine:
                 delta_x += lead_x
                 delta_y += lead_y
 
+        # Deceleration & Linear Snap Configuration
+        linear_snap = bool(self.config.get("linear_head_snap", True))
+        decel_strength = int(self.config.get("head_decel_strength", 0))  # 0 to 100%
+        use_hysteresis = bool(self.config.get("head_hysteresis_lock", False))
+
         # -----------------------------------------------------------------
-        # ANTI-JITTER HEAD HYSTERESIS & MICRO-LOCK (Zero Flicker on Head)
+        # ANTI-JITTER HEAD HYSTERESIS & MICRO-LOCK (Optional)
         # -----------------------------------------------------------------
-        head_radius = max(4.0, float(best_target.get("head_w", 14.0)) * 0.35)
-        
-        # Hysteresis: lock firmly inside radius, require clear separation to unlock
-        if dist_px <= head_radius:
-            self.head_lock_active = True
-        elif dist_px > head_radius * 1.6:
+        if use_hysteresis and not linear_snap:
+            head_radius = max(3.0, float(best_target.get("head_w", 14.0)) * 0.25)
+            
+            # Hysteresis: lock firmly inside radius, require clear separation to unlock
+            if dist_px <= head_radius:
+                self.head_lock_active = True
+            elif dist_px > head_radius * 1.5:
+                self.head_lock_active = False
+
+            if self.head_lock_active:
+                # We are firmly on the head: lock mouse in place and wipe fractional accumulations
+                self.acc_x = 0.0
+                self.acc_y = 0.0
+                move_x = 0
+                move_y = 0
+
+                # Gentle smooth tracking only if enemy is actively running (> 30 px/s)
+                if ("vx" in best_target) and ("vy" in best_target):
+                    tv_x = best_target.get("vx", 0.0)
+                    tv_y = best_target.get("vy", 0.0)
+                    if math.hypot(tv_x, tv_y) > 30.0:
+                        step_x = (delta_x + tv_x * 0.020) * 0.25
+                        step_y = (delta_y + tv_y * 0.020) * 0.25
+                        move_x = int(round(step_x))
+                        move_y = int(round(step_y))
+
+                click_cmd = self._evaluate_triggerbot(
+                    best_target, crosshair_x, crosshair_y,
+                    move_dist=0.0, lead_x=0.0, lead_y=0.0,
+                    dist_to_aim=dist_px, is_aiming=True,
+                    bone_mode=bone_mode
+                )
+                if move_x != 0 or move_y != 0 or click_cmd:
+                    try:
+                        ser = getattr(getattr(self.controller, "transport", None), "serial", None)
+                        if ser and getattr(ser, "is_open", False):
+                            packet = bytearray()
+                            if move_x != 0 or move_y != 0:
+                                packet += b"km.move(%d,%d)\r\n" % (move_x, move_y)
+                            if click_cmd:
+                                packet += click_cmd
+                            ser.write(packet)
+                        else:
+                            if move_x != 0 or move_y != 0:
+                                self.controller.move(move_x, move_y)
+                            if click_cmd and MouseButton:
+                                self.controller.click(MouseButton.LEFT)
+                    except Exception:
+                        pass
+                return
+        else:
             self.head_lock_active = False
 
-        if self.head_lock_active:
-            # We are firmly on the head: lock mouse in place and wipe fractional accumulations
-            self.acc_x = 0.0
-            self.acc_y = 0.0
-            move_x = 0
-            move_y = 0
-
-            # Gentle smooth tracking only if enemy is actively running (> 30 px/s)
-            if ("vx" in best_target) and ("vy" in best_target):
-                tv_x = best_target.get("vx", 0.0)
-                tv_y = best_target.get("vy", 0.0)
-                if math.hypot(tv_x, tv_y) > 30.0:
-                    step_x = (delta_x + tv_x * 0.020) * 0.25
-                    step_y = (delta_y + tv_y * 0.020) * 0.25
-                    move_x = int(round(step_x))
-                    move_y = int(round(step_y))
-
-            click_cmd = self._evaluate_triggerbot(best_target, crosshair_x, crosshair_y, move_dist=0.0, lead_x=0.0, lead_y=0.0)
-            if move_x != 0 or move_y != 0 or click_cmd:
-                try:
-                    ser = getattr(getattr(self.controller, "transport", None), "serial", None)
-                    if ser and getattr(ser, "is_open", False):
-                        packet = bytearray()
-                        if move_x != 0 or move_y != 0:
-                            packet += b"km.move(%d,%d)\r\n" % (move_x, move_y)
-                        if click_cmd:
-                            packet += click_cmd
-                        ser.write(packet)
-                    else:
-                        if move_x != 0 or move_y != 0:
-                            self.controller.move(move_x, move_y)
-                        if click_cmd and MouseButton:
-                            self.controller.click(MouseButton.LEFT)
-                except Exception:
-                    pass
-            return
-
-        # Clean Linear Snap (Zero Wiggle, Zero Overshoot)
+        # -----------------------------------------------------------------
+        # SPEED & TRAJECTORY CALCULATION (Linear Snap vs Deceleration Curve)
+        # -----------------------------------------------------------------
         snap_smooth = max(1.0, smooth)
-        if snap_smooth <= 1.05:
-            step_x = delta_x * 0.70
-            step_y = delta_y * 0.70
-            max_step = 55.0
+
+        if linear_snap or decel_strength <= 0:
+            # 100% Pure Linear Snap: Zero braking, constant smooth pull straight to head center
+            step_x = delta_x / snap_smooth
+            step_y = delta_y / snap_smooth
+            max_step = 65.0
         else:
-            # Distance-adaptive curve: fast closing speed from afar, critically damped landing
+            # Distance-adaptive curve scaled by user deceleration strength (0% = none, 100% = full)
+            ratio = decel_strength / 100.0
             dist_factor = min(2.5, max(0.85, dist_px / 35.0))
-            curve_smooth = max(1.15, snap_smooth * 0.75) * (1.0 / dist_factor)
+            curve_factor = 1.0 + ratio * ((1.0 / dist_factor) - 1.0)
+            curve_smooth = max(1.0, snap_smooth * 0.75 * curve_factor)
             step_x = delta_x / curve_smooth
             step_y = delta_y / curve_smooth
             max_step = 45.0
@@ -374,7 +394,12 @@ class MAKCU_AimbotEngine:
 
         # Check triggerbot in the same frame (with lead prediction included!)
         move_dist = math.hypot(move_x, move_y)
-        click_cmd = self._evaluate_triggerbot(best_target, crosshair_x, crosshair_y, move_dist=move_dist, lead_x=lead_x, lead_y=lead_y)
+        click_cmd = self._evaluate_triggerbot(
+            best_target, crosshair_x, crosshair_y,
+            move_dist=move_dist, lead_x=lead_x, lead_y=lead_y,
+            dist_to_aim=dist_px, is_aiming=self.is_aiming,
+            bone_mode=bone_mode
+        )
 
         # Feature 7: Zero-Latency Batched Serial Pipeline
         # Fuses move + click into a single atomic byte packet to halve USB bus latency
@@ -412,28 +437,43 @@ class MAKCU_AimbotEngine:
             pass
         return False
 
-    def _evaluate_triggerbot(self, target, crosshair_x, crosshair_y, move_dist=0.0, lead_x=0.0, lead_y=0.0):
-        """Evaluate triggerbot conditions and return direct byte command if ready to fire."""
+    def _evaluate_triggerbot(self, target, crosshair_x, crosshair_y, move_dist=0.0, lead_x=0.0, lead_y=0.0, dist_to_aim=None, is_aiming=False, bone_mode="head"):
+        """
+        Evaluate triggerbot conditions and return direct byte command if ready to fire.
+        Prevents premature firing before the aimbot has locked onto the target!
+        """
         if not self.config.get("makcu_triggerbot", False):
             self.trigger_burst_count = 0
+            self.target_lock_start_time = 0.0
             return None
 
         # Counter-Strafing / Stillness Check: Don't shoot while moving
         if bool(self.config.get("makcu_triggerbot_stop_to_shoot", True)):
             if self._is_moving():
-                return None
-
-        # Aim Snap Check: Don't shoot while the aimbot is snapping / rapidly correcting
-        if bool(self.config.get("makcu_triggerbot_snap_check", True)):
-            if move_dist > 3.0:
+                self.target_lock_start_time = 0.0
                 return None
 
         now = time.time()
         if now < getattr(self, "burst_cooldown_until", 0.0):
             return None
 
-        # 1. Hit validation (Headshot-only vs Full-body)
-        head_only = bool(self.config.get("makcu_triggerbot_head_only", True))
+        # 1. Lock-Before-Fire Check: When aimbot is aiming, NEVER fire before crosshair reaches target!
+        lock_on_aim = bool(self.config.get("makcu_trigger_on_lock_only", True))
+        max_tolerance = float(self.config.get("makcu_trigger_tolerance", 5.0))
+
+        if is_aiming and lock_on_aim:
+            if dist_to_aim is not None and dist_to_aim > max_tolerance:
+                self.target_lock_start_time = 0.0
+                return None
+
+        # 2. Aim Snap Check: Don't shoot while the aimbot is actively moving / snapping (> 2.5 px/frame)
+        if bool(self.config.get("makcu_triggerbot_snap_check", True)):
+            if move_dist > 2.5:
+                self.target_lock_start_time = 0.0
+                return None
+
+        # 3. Hit Validation (Strict Head Ellipse vs Full-body)
+        head_only = bool(self.config.get("makcu_triggerbot_head_only", True)) or (bone_mode == "head" and lock_on_aim)
 
         # Include real-time motion lead in hit evaluation so running targets are validated accurately
         head_x = target.get("head_cx", target["cx"]) + lead_x
@@ -441,7 +481,7 @@ class MAKCU_AimbotEngine:
         hw_rad = max(4.0, target.get("head_w", 12.0) / 2.0)
         hh_rad = max(4.0, target.get("head_h", 14.0) / 2.0)
         norm_head_sq = ((crosshair_x - head_x) / hw_rad) ** 2 + ((crosshair_y - head_y) / hh_rad) ** 2
-        is_on_head = norm_head_sq <= 1.45
+        is_on_head = norm_head_sq <= 1.15  # Strict head radius verification
 
         x1 = target["x1"] + lead_x
         y1 = target["y1"] + lead_y
@@ -451,14 +491,27 @@ class MAKCU_AimbotEngine:
 
         if head_only:
             if not is_on_head:
+                self.target_lock_start_time = 0.0
                 return None
         else:
             if not is_on_body:
+                self.target_lock_start_time = 0.0
                 return None
 
-        # 2. Timing and Mode control
+        # 4. Lock Duration / Pre-Fire Settling Delay (ms)
+        lock_delay_s = max(0.0, float(self.config.get("makcu_trigger_lock_delay_ms", 25)) / 1000.0)
+        if lock_delay_s > 0:
+            if getattr(self, "target_lock_start_time", 0.0) <= 0.0:
+                self.target_lock_start_time = now
+                return None
+            elif (now - self.target_lock_start_time) < lock_delay_s:
+                return None
+        else:
+            self.target_lock_start_time = now
+
+        # 5. Timing and Mode Control
         mode = str(self.config.get("makcu_triggerbot_mode", "tap")).lower()
-        shot_delay = max(0.02, float(self.config.get("makcu_triggerbot_delay_ms", 35)) / 1000.0)
+        shot_delay = max(0.015, float(self.config.get("makcu_triggerbot_delay_ms", 25)) / 1000.0)
 
         if now - self.last_trigger_time < shot_delay:
             return None
@@ -470,6 +523,7 @@ class MAKCU_AimbotEngine:
             reset_pause = max(0.08, float(self.config.get("makcu_triggerbot_recoil_delay_ms", 180)) / 1000.0)
             self.burst_cooldown_until = now + reset_pause
             self.trigger_burst_count = 0
+            self.target_lock_start_time = 0.0
         elif mode == "burst":
             self.trigger_burst_count = getattr(self, "trigger_burst_count", 0) + 1
             max_burst = int(self.config.get("makcu_triggerbot_burst_shots", 2))
@@ -477,6 +531,7 @@ class MAKCU_AimbotEngine:
                 reset_pause = max(0.10, float(self.config.get("makcu_triggerbot_recoil_delay_ms", 220)) / 1000.0)
                 self.burst_cooldown_until = now + reset_pause
                 self.trigger_burst_count = 0
+                self.target_lock_start_time = 0.0
         else:
             self.trigger_burst_count = 0
 

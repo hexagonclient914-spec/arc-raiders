@@ -84,7 +84,13 @@ DEFAULT_YOLO_CONFIG = {
     "makcu_triggerbot_recoil_delay_ms": 180,   # Wait time after tap/burst for weapon recoil reset
     "makcu_triggerbot_stop_to_shoot": True,    # Only fire when standing still (no WASD movement / counter-strafe)
     "makcu_triggerbot_snap_check": True,       # Suppress firing during fast aiming snaps until reticle settles
+    "makcu_trigger_on_lock_only": True,        # True = Triggerbot only fires when crosshair is firmly on target
+    "makcu_trigger_tolerance": 5,              # Max pixel distance from crosshair to aim target to allow firing (2-15 px)
+    "makcu_trigger_lock_delay_ms": 25,         # Milliseconds crosshair must settle on target before firing
     "makcu_lock_on_target": False,             # Hardware-level physical mouse freeze when reticle is on target
+    "linear_head_snap": True,                  # True = Direct snap onto head center with zero braking
+    "head_decel_strength": 0,                  # 0% = Pure linear (no deceleration), 100% = Maximum landing brake
+    "head_hysteresis_lock": False,             # False = Never freeze mouse before reaching head center
 }
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yolo_config.json")

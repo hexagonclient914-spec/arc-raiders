@@ -43,3 +43,6 @@ Arc-Raiders-13/
 .env
 venv/
 .venv/
+
+# Scratch scripts
+scratch/

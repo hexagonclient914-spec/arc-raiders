@@ -37,7 +37,7 @@ from PyQt6.QtGui import QIcon, QGuiApplication, QColor, QPixmap, QPainter
 from yolo_config import YOLOConfig
 from yolo_engine import YOLOEngine
 from yolo_overlay import YOLOOverlayWindow
-from yolo_settings import YOLOSettingsWindow
+from aura_gui import AuraEliteHUDWindow
 
 _instance_lock = None
 
@@ -231,7 +231,7 @@ def main():
         overlay.show()
         overlay.raise_()
 
-    settings = YOLOSettingsWindow(engine, config, overlay)
+    settings = AuraEliteHUDWindow(engine, config, overlay)
     # Position settings window nicely centered on screen
     settings.move(
         screen_rect.x() + (screen_rect.width() - settings.width()) // 2,
@@ -252,7 +252,7 @@ def main():
         if hasattr(settings, "_sync_engine_power_ui"):
             settings._sync_engine_power_ui()
         k_eng = str(config.get("hotkey_toggle_engine", "c")).upper()
-        if hasattr(settings, "status_bar_lbl"):
+        if getattr(settings, "status_bar_lbl", None) is not None:
             if new_state:
                 settings.status_bar_lbl.setText(f"🟢 System & Aim AKTIVIERT via Keybind [{k_eng}]")
             else:
