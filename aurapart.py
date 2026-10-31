@@ -71,6 +71,7 @@ class MAKCU_AimbotEngine:
         self.trigger_burst_count = 0
         self.burst_cooldown_until = 0.0
         self.target_lock_start_time = 0.0
+        self.last_process_time = time.perf_counter()
         self._running = True
 
         # Auto-connect and continuous background watchdog to ensure 100% connection uptime
@@ -298,20 +299,24 @@ class MAKCU_AimbotEngine:
 
         lead_x = 0.0
         lead_y = 0.0
+        target_vel = 0.0
+        tv_x = 0.0
+        tv_y = 0.0
         if ("vx" in best_target) and ("vy" in best_target):
-            tv_x = best_target.get("vx", 0.0)
-            tv_y = best_target.get("vy", 0.0)
+            tv_x = float(best_target.get("vx", 0.0))
+            tv_y = float(best_target.get("vy", 0.0))
             target_vel = math.hypot(tv_x, tv_y)
 
-            # Active when enemy moves (> 25 px/s)
-            if target_vel > 25.0:
-                # Total latency pipeline: capture + tensorrt + USB transfer (~26-32ms)
-                lead_dt = 0.030
+            # Active when enemy moves (> 15 px/s)
+            if target_vel > 15.0 and bool(self.config.get("makcu_prediction", True)):
+                # Total latency pipeline: capture + tensorrt + USB transfer + display lag (~50-65ms)
+                lead_ms = float(self.config.get("makcu_lead_time_ms", 55.0))
+                lead_dt = max(0.010, min(0.120, lead_ms / 1000.0))
                 lead_x = tv_x * lead_dt
                 lead_y = tv_y * lead_dt
 
-                # Generous safety clamp so it stays locked right onto the center of the head
-                max_lead = max(8.0, best_target.get("w", 30) * 0.40)
+                # Generous safety clamp based on enemy dimensions (prevents overshooting beyond target model)
+                max_lead = max(28.0, float(best_target.get("w", 30)) * 1.35)
                 lead_x = max(-max_lead, min(max_lead, lead_x))
                 lead_y = max(-max_lead, min(max_lead, lead_y))
 
@@ -375,25 +380,44 @@ class MAKCU_AimbotEngine:
         else:
             self.head_lock_active = False
 
-        # -----------------------------------------------------------------
+        # -------------------------------------------------------------
         # SPEED & TRAJECTORY CALCULATION (Linear Snap vs Deceleration Curve)
         # -----------------------------------------------------------------
         snap_smooth = max(1.0, smooth)
 
+        # Dynamic Velocity Feedforward (Match running speed so crosshair never trails behind!)
+        feedforward_active = bool(self.config.get("velocity_feedforward", True))
+        vel_ff_x = 0.0
+        vel_ff_y = 0.0
+        if feedforward_active and target_vel > 15.0:
+            now_t = time.perf_counter()
+            dt_frame = max(0.004, min(0.035, now_t - getattr(self, "last_process_time", now_t - 0.016)))
+            self.last_process_time = now_t
+
+            # Feedforward velocity step (moves crosshair along with enemy's movement per frame)
+            vel_ff_x = tv_x * dt_frame * 0.95
+            vel_ff_y = tv_y * dt_frame * 0.95
+
+            # Dynamic speed boost: loosen smoothing resistance on fast running enemies
+            speed_ratio = min(2.5, target_vel / 130.0)
+            snap_smooth = max(1.0, snap_smooth / (1.0 + speed_ratio * 0.85))
+        else:
+            self.last_process_time = time.perf_counter()
+
         if linear_snap or decel_strength <= 0:
-            # 100% Pure Linear Snap: Zero braking, constant smooth pull straight to head center
-            step_x = delta_x / snap_smooth
-            step_y = delta_y / snap_smooth
-            max_step = 65.0
+            # 100% Pure Linear Snap + Velocity Feedforward
+            step_x = (delta_x / snap_smooth) + vel_ff_x
+            step_y = (delta_y / snap_smooth) + vel_ff_y
+            max_step = 75.0
         else:
             # Distance-adaptive curve scaled by user deceleration strength (0% = none, 100% = full)
             ratio = decel_strength / 100.0
             dist_factor = min(2.5, max(0.85, dist_px / 35.0))
             curve_factor = 1.0 + ratio * ((1.0 / dist_factor) - 1.0)
             curve_smooth = max(1.0, snap_smooth * 0.75 * curve_factor)
-            step_x = delta_x / curve_smooth
-            step_y = delta_y / curve_smooth
-            max_step = 45.0
+            step_x = (delta_x / curve_smooth) + vel_ff_x
+            step_y = (delta_y / curve_smooth) + vel_ff_y
+            max_step = 55.0
 
         step_x = max(-max_step, min(max_step, step_x))
         step_y = max(-max_step, min(max_step, step_y))

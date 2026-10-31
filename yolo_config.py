@@ -91,6 +91,8 @@ DEFAULT_YOLO_CONFIG = {
     "linear_head_snap": True,                  # True = Direct snap onto head center with zero braking
     "head_decel_strength": 0,                  # 0% = Pure linear (no deceleration), 100% = Maximum landing brake
     "head_hysteresis_lock": False,             # False = Never freeze mouse before reaching head center
+    "makcu_lead_time_ms": 55,                  # Advance prediction lead in milliseconds on running targets (20-120 ms)
+    "velocity_feedforward": True,              # Feedforward speed matching: eliminates trailing behind running targets
 }
 
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "yolo_config.json")

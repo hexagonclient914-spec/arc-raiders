@@ -255,7 +255,7 @@ class AuraEliteHUDWindow(QMainWindow):
                 print(f"[AURA GUI] Warning: Could not start YOLOOverlayWindow: {e}")
 
         self.setWindowTitle("AURA // Smarter. Smoother. Deadlier.")
-        self.resize(1060, 680)
+        self.resize(1080, 720)
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
 
@@ -633,6 +633,34 @@ class AuraEliteHUDWindow(QMainWindow):
         self.slider_head_decel.valueChanged.connect(self._on_head_decel_changed)
         c2_lay.addWidget(self.slider_head_decel)
 
+        # Velocity Tracking (Feedforward Speed Matching)
+        self.chk_feedforward = self._create_checkbox_row(c2_lay, "Velocity Tracking", "Match running enemy speed with zero lag", checked=True)
+        self.chk_feedforward.stateChanged.connect(lambda s: self._on_config_toggle("velocity_feedforward", bool(s)))
+
+        # Running Target Lead Time Slider (20 - 120 ms)
+        c2_lay.addSpacing(2)
+        lead_head = QHBoxLayout()
+        v_lead = QVBoxLayout()
+        lbl_lead = QLabel("Running Lead Time")
+        lbl_lead.setObjectName("ControlTitle")
+        lbl_lead_sub = QLabel("Advance prediction lead on running targets", self)
+        lbl_lead_sub.setObjectName("ControlSub")
+        v_lead.addWidget(lbl_lead)
+        v_lead.addWidget(lbl_lead_sub)
+        lead_head.addLayout(v_lead)
+        lead_head.addStretch()
+        self.lbl_lead_val = QLabel("55 ms")
+        self.lbl_lead_val.setObjectName("ValueBadge")
+        lead_head.addWidget(self.lbl_lead_val)
+        c2_lay.addLayout(lead_head)
+
+        self.slider_lead = QSlider(Qt.Orientation.Horizontal)
+        self.slider_lead.setObjectName("CyberSlider")
+        self.slider_lead.setRange(20, 120)
+        self.slider_lead.setValue(55)
+        self.slider_lead.valueChanged.connect(self._on_lead_slider_changed)
+        c2_lay.addWidget(self.slider_lead)
+
         c2_lay.addStretch()
         col2.addWidget(c2, stretch=1)
 
@@ -909,6 +937,11 @@ class AuraEliteHUDWindow(QMainWindow):
         self.lbl_lock_del_val.setText(f"{v} ms")
         self.config.set("makcu_trigger_lock_delay_ms", v)
         self.config_data["makcu_trigger_lock_delay_ms"] = v
+
+    def _on_lead_slider_changed(self, v: int):
+        self.lbl_lead_val.setText(f"{v} ms")
+        self.config.set("makcu_lead_time_ms", v)
+        self.config_data["makcu_lead_time_ms"] = v
 
     def _on_config_toggle(self, key: str, value: bool):
         self.config.set(key, value)
@@ -1365,6 +1398,7 @@ class AuraEliteHUDWindow(QMainWindow):
             self.slider_fov, self.slider_smooth, self.combo_aim_key,
             self.combo_target, self.chk_pred, self.chk_smart, self.chk_anti_snap,
             self.chk_linear_snap, self.slider_head_decel,
+            self.chk_feedforward, self.slider_lead,
             self.sw_recoil, self.sw_spread, self.sw_auto_fire, self.sw_trigger,
             self.sw_lock_trigger, self.slider_tol, self.slider_lock_del,
             self.sw_esp_box, self.sw_esp_skel, self.sw_esp_hp, self.sw_esp_name,
@@ -1429,6 +1463,12 @@ class AuraEliteHUDWindow(QMainWindow):
             self.chk_linear_snap.setChecked(is_linear)
             self.slider_head_decel.setValue(decel_val)
             self.lbl_decel_val.setText(f"{decel_val}%" if decel_val > 0 else "0% (Aus)")
+
+            # Velocity Tracking & Running Lead Time
+            self.chk_feedforward.setChecked(bool(cfg.get("velocity_feedforward", True)))
+            lead_val = int(cfg.get("makcu_lead_time_ms", 55))
+            self.slider_lead.setValue(lead_val)
+            self.lbl_lead_val.setText(f"{lead_val} ms")
 
             # Miscellaneous
             self.sw_recoil.setChecked(bool(cfg.get("makcu_recoil_compensation", True)))
@@ -1529,6 +1569,8 @@ class AuraEliteHUDWindow(QMainWindow):
         # Linear Head Snap & Deceleration
         self.config.set("linear_head_snap", self.chk_linear_snap.isChecked())
         self.config.set("head_decel_strength", self.slider_head_decel.value())
+        self.config.set("velocity_feedforward", self.chk_feedforward.isChecked())
+        self.config.set("makcu_lead_time_ms", self.slider_lead.value())
 
         # AI Engine Page Settings
         self.config.set("confidence_threshold", self.slider_conf.value() / 100.0)
@@ -1584,6 +1626,9 @@ class AuraEliteHUDWindow(QMainWindow):
         self.slider_smooth.setValue(30)
         self.combo_aim_key.setCurrentIndex(0)
         self.combo_target.setCurrentIndex(0)
+        self.chk_feedforward.setChecked(True)
+        self.slider_lead.setValue(55)
+        self.lbl_lead_val.setText("55 ms")
         self.chk_pred.setChecked(True)
         self.chk_smart.setChecked(False)
         self.chk_anti_snap.setChecked(True)
