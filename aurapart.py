@@ -71,9 +71,27 @@ class MAKCU_AimbotEngine:
         self.trigger_burst_count = 0
         self.burst_cooldown_until = 0.0
         self.target_lock_start_time = 0.0
+        self._running = True
 
-        # Auto-connect asynchronously in background so startup remains instant
-        threading.Thread(target=self.connect, daemon=True).start()
+        # Auto-connect and continuous background watchdog to ensure 100% connection uptime
+        self._watchdog_thread = threading.Thread(target=self._connection_watchdog, daemon=True)
+        self._watchdog_thread.start()
+
+    def _connection_watchdog(self):
+        """Continuously ensure MAKCU hardware is connected, responsive and healthy."""
+        while getattr(self, "_running", True):
+            try:
+                needs_connect = False
+                with self._lock:
+                    if not self.is_connected or not self.controller:
+                        needs_connect = True
+                    elif hasattr(self.controller, "is_connected") and not self.controller.is_connected():
+                        needs_connect = True
+                if needs_connect:
+                    self.connect()
+            except Exception:
+                pass
+            time.sleep(2.0)
 
     def connect(self):
         """Establish connection to MAKCU device via official driver."""
@@ -342,19 +360,15 @@ class MAKCU_AimbotEngine:
                 )
                 if move_x != 0 or move_y != 0 or click_cmd:
                     try:
-                        ser = getattr(getattr(self.controller, "transport", None), "serial", None)
-                        if ser and getattr(ser, "is_open", False):
-                            packet = bytearray()
-                            if move_x != 0 or move_y != 0:
-                                packet += b"km.move(%d,%d)\r\n" % (move_x, move_y)
-                            if click_cmd:
-                                packet += click_cmd
-                            ser.write(packet)
-                        else:
-                            if move_x != 0 or move_y != 0:
-                                self.controller.move(move_x, move_y)
-                            if click_cmd and MouseButton:
+                        if move_x != 0 or move_y != 0:
+                            self.controller.move(move_x, move_y)
+                        if click_cmd:
+                            if MouseButton:
                                 self.controller.click(MouseButton.LEFT)
+                            else:
+                                tr = getattr(self.controller, "transport", None)
+                                if tr:
+                                    tr.send_command("km.left(1)\r\nkm.left(0)")
                     except Exception:
                         pass
                 return
@@ -405,26 +419,24 @@ class MAKCU_AimbotEngine:
         # Fuses move + click into a single atomic byte packet to halve USB bus latency
         if move_x != 0 or move_y != 0 or click_cmd:
             try:
-                ser = getattr(getattr(self.controller, "transport", None), "serial", None)
-                if ser and getattr(ser, "is_open", False):
-                    packet = bytearray()
-                    if move_x != 0 or move_y != 0:
-                        packet += b"km.move(%d,%d)\r\n" % (move_x, move_y)
-                    if click_cmd:
-                        packet += click_cmd
-                    ser.write(packet)
-                else:
-                    if move_x != 0 or move_y != 0:
-                        self.controller.move(move_x, move_y)
-                    if click_cmd and MouseButton:
+                if move_x != 0 or move_y != 0:
+                    self.controller.move(move_x, move_y)
+                if click_cmd:
+                    if MouseButton:
                         self.controller.click(MouseButton.LEFT)
+                    else:
+                        tr = getattr(self.controller, "transport", None)
+                        if tr:
+                            tr.send_command("km.left(1)\r\nkm.left(0)")
             except Exception as e:
                 try:
-                    if move_x != 0 or move_y != 0:
-                        self.controller.move(move_x, move_y)
+                    if not self.controller.is_connected():
+                        with self._lock:
+                            self.is_connected = False
                 except Exception:
-                    self.is_connected = False
-                    print(f"[MAKCU] Move command error: {e}")
+                    with self._lock:
+                        self.is_connected = False
+                print(f"[MAKCU] Move command error: {e}")
 
     def _is_moving(self):
         """Check if movement keys (W, A, S, D, Space) are currently pressed."""
