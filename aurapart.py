@@ -316,30 +316,30 @@ class MAKCU_AimbotEngine:
             raw_vel = math.hypot(tv_x, tv_y)
 
             # Smooth velocity with Exponential Moving Average (EMA) to prevent camera optical flow feedback jitter
-            if raw_vel < 20.0:
-                self.smooth_vx *= 0.50
-                self.smooth_vy *= 0.50
+            if raw_vel < 18.0:
+                self.smooth_vx *= 0.40
+                self.smooth_vy *= 0.40
             else:
                 if abs(self.smooth_vx) < 5.0 and abs(self.smooth_vy) < 5.0:
-                    self.smooth_vx = tv_x * 0.65
-                    self.smooth_vy = tv_y * 0.65
+                    self.smooth_vx = tv_x * 0.85
+                    self.smooth_vy = tv_y * 0.85
                 else:
-                    self.smooth_vx = 0.65 * self.smooth_vx + 0.35 * tv_x
-                    self.smooth_vy = 0.65 * self.smooth_vy + 0.35 * tv_y
+                    self.smooth_vx = 0.50 * self.smooth_vx + 0.50 * tv_x
+                    self.smooth_vy = 0.50 * self.smooth_vy + 0.50 * tv_y
 
             smooth_speed = math.hypot(self.smooth_vx, self.smooth_vy)
             target_vel = smooth_speed
 
-            # Single stable lead calculation strictly in aurapart.py
-            if smooth_speed > 20.0 and bool(self.config.get("makcu_prediction", True)):
-                lead_ms = float(self.config.get("makcu_lead_time_ms", 45.0))
-                lead_dt = max(0.015, min(0.065, lead_ms / 1000.0))
+            # Single stable lead calculation strictly in aurapart.py (supports full user slider range up to 125ms)
+            if smooth_speed > 18.0 and bool(self.config.get("makcu_prediction", True)):
+                lead_ms = float(self.config.get("makcu_lead_time_ms", 55.0))
+                lead_dt = max(0.015, min(0.125, lead_ms / 1000.0))
                 lead_x = self.smooth_vx * lead_dt
                 lead_y = self.smooth_vy * lead_dt
 
                 # Generous safety clamp based on enemy dimensions
-                max_lead_x = max(14.0, min(26.0, float(best_target.get("w", 30)) * 0.75))
-                max_lead_y = max(8.0, min(16.0, float(best_target.get("h", 60)) * 0.35))
+                max_lead_x = max(20.0, min(50.0, float(best_target.get("w", 30)) * 1.35))
+                max_lead_y = max(10.0, min(25.0, float(best_target.get("h", 60)) * 0.50))
                 lead_x = max(-max_lead_x, min(max_lead_x, lead_x))
                 lead_y = max(-max_lead_y, min(max_lead_y, lead_y))
 
@@ -415,15 +415,15 @@ class MAKCU_AimbotEngine:
         # Gracefully reduce smoothing resistance on running enemies so the crosshair never trails behind,
         # but WITHOUT direct velocity step addition to guarantee zero optical-flow flutter or over-oscillation.
         feedforward_active = bool(self.config.get("velocity_feedforward", True))
-        if feedforward_active and target_vel > 20.0:
-            speed_ratio = min(1.8, target_vel / 150.0)
-            snap_smooth = max(1.0, snap_smooth / (1.0 + speed_ratio * 0.60))
+        if feedforward_active and target_vel > 18.0:
+            speed_ratio = min(3.5, (target_vel - 15.0) / 60.0)
+            snap_smooth = max(1.0, snap_smooth / (1.0 + speed_ratio * 1.15))
 
         if linear_snap or decel_strength <= 0:
             # 100% Pure Linear Snap
             step_x = delta_x / snap_smooth
             step_y = delta_y / snap_smooth
-            max_step = 65.0
+            max_step = 85.0 if target_vel > 25.0 else 65.0
         else:
             # Distance-adaptive curve scaled by user deceleration strength (0% = none, 100% = full)
             ratio = decel_strength / 100.0
@@ -432,7 +432,7 @@ class MAKCU_AimbotEngine:
             curve_smooth = max(1.0, snap_smooth * 0.75 * curve_factor)
             step_x = delta_x / curve_smooth
             step_y = delta_y / curve_smooth
-            max_step = 50.0
+            max_step = 70.0 if target_vel > 25.0 else 50.0
 
         step_x = max(-max_step, min(max_step, step_x))
         step_y = max(-max_step, min(max_step, step_y))
