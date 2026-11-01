@@ -627,6 +627,8 @@ class CommercialLoaderWindow(QMainWindow):
             self.lbl_auth_status.setStyleSheet("color: #FF2A55; font-weight: bold;")
 
     def _select_game(self, game_id: str):
+        if game_id not in self.game_cards:
+            game_id = "valorant"
         # Update UI highlight
         for gid, item in self.game_cards.items():
             if gid == game_id:
@@ -694,6 +696,7 @@ class CommercialLoaderWindow(QMainWindow):
 
     def _sync_selected_game_card(self):
         curr_game = "valorant"
+        curr_source = "desktop"
         active_dir = get_active_payload_dir()
         cfg_path = os.path.join(active_dir, "yolo_config.json")
         if not os.path.exists(cfg_path) and os.path.exists(CONFIG_FILE):

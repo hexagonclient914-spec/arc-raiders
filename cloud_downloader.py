@@ -167,28 +167,35 @@ class CloudAssetDownloaderThread(QThread):
             stream_url, req_headers = self._resolve_download_request(self.cloud_url)
             self.sig_progress.emit(8, "Connecting to Cloud Server...", "0.0 KB/s")
 
-            req = urllib.request.Request(
-                stream_url,
-                headers=req_headers
-            )
-            
-            with urllib.request.urlopen(req, timeout=20.0) as response:
-                total_size = int(response.info().get("Content-Length", 0))
-                downloaded = 0
-                chunk_size = 1024 * 64
-                t_start = time.time()
-                t_last_speed = t_start
-                downloaded_last_sec = 0
-                speed_str = "0 MB/s"
+            import requests
+            session = requests.Session()
+            session.headers.update(req_headers)
 
-                with open(temp_zip, "wb") as f_out:
-                    while True:
-                        if self._is_cancelled:
-                            self.sig_finished.emit(False, "Download cancelled by user.")
-                            return
-                        chunk = response.read(chunk_size)
-                        if not chunk:
-                            break
+            try:
+                response = session.get(stream_url, stream=True, timeout=25.0)
+            except requests.exceptions.SSLError:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                response = session.get(stream_url, stream=True, timeout=25.0, verify=False)
+
+            if response.status_code != 200:
+                self.sig_finished.emit(False, f"Cloud Download Failed: HTTP {response.status_code} ({response.reason})")
+                return
+
+            total_size = int(response.headers.get("Content-Length", 0))
+            downloaded = 0
+            chunk_size = 1024 * 64
+            t_start = time.time()
+            t_last_speed = t_start
+            downloaded_last_sec = 0
+            speed_str = "0 MB/s"
+
+            with open(temp_zip, "wb") as f_out:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if self._is_cancelled:
+                        self.sig_finished.emit(False, "Download cancelled by user.")
+                        return
+                    if chunk:
                         f_out.write(chunk)
                         downloaded += len(chunk)
                         downloaded_last_sec += len(chunk)
@@ -222,8 +229,8 @@ class CloudAssetDownloaderThread(QThread):
             self.sig_progress.emit(100, "Client fully initialized!", "Ready")
             self.sig_finished.emit(True, "Installation complete!")
 
-        except urllib.error.HTTPError as e:
-            self.sig_finished.emit(False, f"Cloud Download Failed: HTTP {e.code} ({e.reason})")
+        except requests.exceptions.HTTPError as e:
+            self.sig_finished.emit(False, f"Cloud Download Failed: HTTP {e.response.status_code}")
         except Exception as e:
             self.sig_finished.emit(False, f"Download error: {e}")
 
@@ -248,9 +255,17 @@ class CloudAssetDownloaderThread(QThread):
                     api_headers["Authorization"] = f"Bearer {token}"
 
                 try:
-                    req = urllib.request.Request(api_url, headers=api_headers)
-                    with urllib.request.urlopen(req, timeout=10.0) as resp:
-                        rel_data = json.loads(resp.read().decode("utf-8"))
+                    import requests
+                    session = requests.Session()
+                    try:
+                        resp = session.get(api_url, headers=api_headers, timeout=12.0)
+                    except requests.exceptions.SSLError:
+                        import urllib3
+                        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                        resp = session.get(api_url, headers=api_headers, timeout=12.0, verify=False)
+
+                    if resp.status_code == 200:
+                        rel_data = resp.json()
                         assets = rel_data.get("assets", [])
                         target_asset = None
                         for a in assets:
